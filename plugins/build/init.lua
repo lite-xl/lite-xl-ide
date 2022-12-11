@@ -11,25 +11,33 @@ local StatusView = require "core.statusview"
 local TreeView = require "plugins.treeview"
 local ToolbarView = require "plugins.toolbarview"
 
-local build = {
+local build = common.merge({
   targets = { },
   current_target = 1,
   running_program = nil,
   -- Config variables
   threads = 8,
-  error_pattern = "^%s*([^:]+):(%d+):(%d*):? (%w*):? (.+)",
+  error_pattern = "^%s*([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
   file_pattern = "^%s*([^:]+):(%d+):(%d*):? (.+)",
-  interval = 0.1,
+  error_color = style.error,
+  warning_color = style.warn,
+  good_color = style.good,
   drawer_size = 100,
-  close_drawer_on_success = false,
+  close_drawer_on_success = true,
   terminal = "xterm",
   shell = "bash -c"
-}
+}, config.plugins.build)
 
-style.error_line = { common.color "#8c2a2b" }
-style.error_message = { common.color "#Fc8a8b" }
 
-local tried_term = false
+local function get_plugin_directory() 
+  local paths = { 
+    USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
+    DATADIR .. PATHSEP .. "plugins" .. PATHSEP .. "build"
+  }
+  for i, v in ipairs(paths) do if system.get_file_info(v) then return v end end
+  return nil
+end
+
 
 local function jump_to_file(file, line, col)
   if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
@@ -47,33 +55,8 @@ local function jump_to_file(file, line, col)
   end
 end
 
-
-local function run_command(cmd, on_line, on_done)
-  core.add_thread(function()
-    build.running_program = process.start(cmd, { ["stderr"] = process.REDIRECT_STDOUT })    
-    
-    local function handle_output(output)
-      if output ~= nil then
-        local offset = 1
-        while offset < #output do
-          local newline = output:find("\n", offset) or #output
-          if on_line then
-            on_line(output:sub(offset, newline-1))
-          end
-          offset = newline + 1
-        end
-      end
-    end
-    
-    while build.running_program:running() do
-      handle_output(build.running_program:read_stdout())
-      coroutine.yield(build.interval)
-    end
-    handle_output(build.running_program:read_stdout())
-    if on_done then
-      on_done()
-    end
-  end)
+function build.is_running()
+  return build.targets[build.current_target].backend.is_running(build.targets[build.current_target])
 end
 
 function build.set_target(target)
@@ -81,8 +64,15 @@ function build.set_target(target)
   config.target_binary = build.targets[target].binary
 end
 
+function build.set_make_targets(targets)
+  build.targets = targets
+  for i,v in ipairs(targets) do v.backend = require "plugins.build.make" end
+  config.target_binary = build.targets[1].binary
+end
+
 function build.set_targets(targets)
   build.targets = targets
+  for i,v in ipairs(targets) do v.backend = require "plugins.build.internal" end
   config.target_binary = build.targets[1].binary
 end
 
@@ -90,37 +80,16 @@ function build.output(line)
   core.log(line)
 end
 
-local function grep(t, cond)
-  local nt = {} for i,v in ipairs(t) do if cond(v, i) then table.insert(nt, v) end end return nt
-end
 
-function build.build()
-  if build.running_program and build.running_program:running() then return false end
+function build.build(callback)
+  if build.is_running() then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
   local target = build.current_target
-  local command = build.targets[target].build or { "make", build.targets[target].name, "-j", build.threads }
-  if type(command) == "function" then
-    command = command(build.targets[target])
-  elseif type(command) == "string" then
-    command = { command, build.targets[target].name }
-  end
-  run_command(command, function(line)
-    local _, _, file, line_number, column, type, message = line:find(build.error_pattern)
-    if file and (type == "warning" or type == "error") then
-      build.message_view:add_message({ type, file, line_number, column, message })
-    else
-      local _, _, file, line_number, column, message = line:find(build.file_pattern)
-      if file then
-        build.message_view:add_message({ "info", file, line_number, (column or 1), message } )
-      else
-        build.message_view:add_message(line)
-      end
-    end
-  end, function()
-    local filtered_messages = grep(build.message_view.messages, function(v) return type(v) == 'table' end)
-    local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. #filtered_messages .. " Errors/Warnings."
-    build.message_view:add_message(line)
+  build.message_view:add_message("Building " .. (build.targets[target].binary or "target") .. "...")
+  build.targets[target].backend.build(build.targets[target], function (status)
+    local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. status .. " Errors/Warnings."
+    build.message_view:add_message({ status == 0 and "good" or "error", line })
     build.message_view.visible = #build.message_view.messages > 0 or not build.close_drawer_on_success
     build.output(line)
     build.message_view.scroll.to.y = 0
@@ -128,7 +97,7 @@ function build.build()
 end
 
 function build.run()
-  if build.running_program and build.running_program:running() then return false end
+  if build.is_running() then return false end
   build.message_view:clear_messages()
   local target = build.current_target
   local command = build.targets[target].run or build.targets[target].binary
@@ -151,27 +120,21 @@ end
 function build.clean(callback)
   if build.running_program and build.running_program:running() then return false end
   build.message_view:clear_messages()
+  local target = build.current_target
   build.output("Started clean " .. (build.targets[build.current_target].binary or "target") .. ".")
-  local command = build.targets[target].clean or { "make", "clean" }
-  if type(command) == "function" then
-    command = command(build.targets[target])
-  elseif type(command) == "string" then
-    command = { command, build.targets[target].name }
-  end
-  run_command(command, function() end, function()
+  build.targets[build.current_target].backend.clean(build.targets[build.current_target], function(...)
     build.output("Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. ".")
-    if callback then callback() end
+    if callback then callback(...) end
   end)
 end
 
-function build.terminate()
-  if build.running_program:running() then
-    build.running_program:terminate()
-    build.message_view:clear_messages()
+function build.terminate(callback)
+  if not build.is_running() then return false end
+  build.message_view:clear_messages()
+  build.targets[build.current_target].backend.terminate(build.targets[build.current_target], function(...)
     build.output("Killed running build.")
-  else
-    build.output("No build running.")
-  end
+    if callback then callback(...) end
+  end)
 end
 
 
@@ -216,7 +179,7 @@ function DocView:draw_line_gutter(idx, x, y, width)
     and build.message_view.active_message
     and idx == build.message_view.active_line
   then
-    renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.error_line)
+    renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), build.error_color)
   end
   doc_view_draw_line_gutter(self, idx, x, y, width)
 end
@@ -289,36 +252,47 @@ function BuildMessageView:on_mouse_moved(px, py, ...)
   end
 end
 
-function BuildMessageView:on_mouse_pressed(button, x, y, clicks)
-  if BuildMessageView.super.on_mouse_pressed(self, button, x, y, clicks) then
-    return true
-  elseif self.hovered_message and type(self.messages[self.hovered_message]) == "table" then
-    self.active_message = self.hovered_message
-    self.active_file = system.absolute_path(common.home_expand(self.messages[self.hovered_message][2]))
-    self.active_line = tonumber(self.messages[self.hovered_message][3])
-    jump_to_file(self.active_file, tonumber(self.messages[self.hovered_message][3]), tonumber(self.messages[self.hovered_message][4]))
-    return true
-  end
-  return false
-end
 
 function BuildMessageView:draw()
   self:draw_background(style.background3)
   local h = style.code_font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
-  common.draw_text(style.code_font, style.text, "Build Messages", "left", ox + style.padding.x, oy + style.padding.y, 0, h)
+  local title = "Build Messages"
+  local subtitle = { }
+  if build.is_running() then
+    local t = { "|", "/", "-", "\\", "|", "/", "-", "\\" }
+    title = title .. " " .. t[(math.floor(system.get_time()*8) % #t) + 1]
+    core.redraw = true
+  elseif type(self.messages[#self.messages]) == "table" and #self.messages[#self.messages] == 2 then
+    subtitle = self.messages[#self.messages]
+  end
+  local colors = {
+    error = build.error_color,
+    warning = build.warning_color,
+    good = build.good_color
+  }
+  local x = common.draw_text(style.code_font, style.accent, title, "left", ox + style.padding.x, self.position.y + style.padding.y, 0, h)
+  if subtitle and #subtitle == 2 then
+    common.draw_text(style.code_font, colors[subtitle[1]] or style.accent, subtitle[2], "left", x + style.padding.x, self.position.y + style.padding.y, 0, h)
+  end
+  core.push_clip_rect(self.position.x, self.position.y + h + style.padding.y * 2, self.size.x, self.size.y - h - style.padding.y * 2)
   for i,v in ipairs(self.messages) do
-    local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y + h
+    local yoffset = style.padding.y * 2 + (i - 1)*item_height + style.padding.y + h
     if self.hovered_message == i or self.active_message == i then
       renderer.draw_rect(ox, oy + yoffset - style.padding.y * 0.5, self.size.x, h + style.padding.y, style.line_highlight)
     end
     if type(v) == "table" then
-      common.draw_text(style.code_font, v[1] == "error" and style.error or (v[1] == "warning" and style.warning or style.text), v[2] .. ":" .. v[3] .. " [" .. v[1] .. "]: " .. v[5], "left", ox + style.padding.x, oy + yoffset, 0, h)
+      if #v > 2 then
+        common.draw_text(style.code_font, colors[v[1]] or style.text, v[2] .. ":" .. v[3] .. " [" .. v[1] .. "]: " .. v[5], "left", ox + style.padding.x, oy + yoffset, 0, h)
+      else
+        common.draw_text(style.code_font, colors[v[1]] or style.text, v[2], "left", ox + style.padding.x, oy + yoffset, 0, h)
+      end
     else
       common.draw_text(style.code_font, style.text, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
     end
   end
+  core.pop_clip_rect()
   self:draw_scrollbar()
 end
 
@@ -328,7 +302,7 @@ local BuildBarView = ToolbarView:extend()
 
 function BuildBarView:new()
   BuildBarView.super.new(self)
-  self.toolbar_font = renderer.font.load(DATADIR .. PATHSEP .. "fonts" .. PATHSEP .. "build.ttf", style.icon_big_font:get_size())
+  self.toolbar_font = renderer.font.load(get_plugin_directory() .. PATHSEP .. "build.ttf", style.icon_big_font:get_size())
   self.toolbar_commands = {
     {symbol = "!", command = "build:build"},
     {symbol = '"', command = "build:run-or-term-or-kill"},
@@ -345,7 +319,20 @@ local node = core.root_view:get_active_node()
 build.message_view_node = node:split("down", build.message_view, { y = true }, true)
 build.build_bar_node = TreeView.node.b:split("up", build.build_bar_view, {y = true})
 
+command.add(function()
+  local mv = build.message_view
+  return mv.hovered_message and type(mv.messages[mv.hovered_message]) == "table" and #mv.messages[mv.hovered_message] > 2
+end, {
+  ["build:jump-to-hovered"] = function() 
+    local mv = build.message_view
+    mv.active_message = mv.hovered_message
+    mv.active_file = system.absolute_path(common.home_expand(mv.messages[mv.hovered_message][2]))
+    mv.active_line = tonumber(mv.messages[mv.hovered_message][3])
+    jump_to_file(mv.active_file, tonumber(mv.messages[mv.hovered_message][3]), tonumber(mv.messages[mv.hovered_message][4]))
+  end
+})
 
+local tried_term = false
 command.add(function()
   return not build.running_program or not build.running_program:running()
 end, {
@@ -379,6 +366,7 @@ end, {
   end
 })
 
+
 command.add(function()
   return config.target_binary and system.get_file_info(config.target_binary)
 end, {
@@ -404,11 +392,12 @@ command.add(nil, {
 })
 
 keymap.add {
-  ["ctrl+b"]             = "build:build",
+  ["lclick"]             = "build:jump-to-hovered",
+  ["ctrl+b"]             = { "build:build", "build:terminate" },
+  ["ctrl+alt+b"]         = "build:rebuild",
   ["ctrl+e"]             = "build:run-or-term-or-kill",
   ["ctrl+t"]             = "build:next-target",
   ["ctrl+shift+b"]       = "build:clean",
-  ["ctrl+alt+b"]         = "build:terminate",
   ["f6"]                 = "build:toggle-drawer"
 }
 

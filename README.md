@@ -12,6 +12,12 @@ To install, you can use [`lpm`](https://github.com/adamharrison/lite-xl-plugin-m
 lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm install ide
 ```
 
+If you want to just try it out, you can always use `run` to try it in a new lite bottle:
+
+```bash
+lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm run ide
+```
+
 Alternatively, if you don't have `lpm`, or don't want it, you can always pull the repository manually with `git`
 and simply copy the entire set of plugins into lite's plugin directory.
 
