@@ -2,23 +2,11 @@
   "plugins": [{
     "name": "build",
     "description": "Plugin designed to integrate with `make` or `gcc` to build projects.",
-    "path": "plugins/build",
-    "dependencies": {
-      "json": {}
-    }
+    "path": "plugins/build"
   }, {
     "name": "debugger",
     "description": "Allows you to debug projects with `gdb`.",
     "path": "plugins/debugger",
-    "dependencies": {
-      "json": {}
-    }
-  }, {
-    "name": "json",
-    "author": "rxi",
-    "description": "Pure lua method of encoding/decoding json."
-    "path": "libraries/json.lua",
-    "type": "library"
   }, {
     "name": "ide",
     "description": "A metapackage that turns lite into an IDE."
