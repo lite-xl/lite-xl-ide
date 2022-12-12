@@ -19,6 +19,12 @@ local build = common.merge({
   running_bundles = {},
   -- Config variables
   threads = 8,
+  cc = "gcc",
+  cxx = "g++",
+  ar = "ar",
+  cflags = {},
+  cxxflags = {},
+  ldflags = {},
   error_pattern = "^%s*([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
   file_pattern = "^%s*([^:]+):(%d+):(%d*):? (.+)",
   error_color = style.error,
@@ -514,9 +520,12 @@ core.add_thread(function()
   if config.plugins.build.targets then
     build.set_targets(config.plugins.build.targets, config.plugins.build.type)
   else
+    -- autodetect
+    local srcs = nil
+    if system.get_file_info("src") then srcs = { "src" } end
     build.set_targets({
-      { name = "debug", binary = common.basename(core.project_dir) .. "-debug", cflags = "-g", cxxflags = "-g" },
-      { name = "release", binary = common.basename(core.project_dir) .. "-release", cflags = "-O3", cxxflags = "-O3" },
+      { name = "debug", binary = common.basename(core.project_dir) .. "-debug", cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
+      { name = "release", binary = common.basename(core.project_dir) .. "-release", cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
     })
   end
 end)

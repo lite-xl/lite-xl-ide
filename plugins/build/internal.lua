@@ -21,12 +21,7 @@ local internal = common.merge({
   threads = build.threads,
   running_programs = nil,
   remaining_programs = {},
-  interval = 0.1,
-  cc = "gcc",
-  cxx = "g++",
-  ar = "ar",
-  ldflags = {},
-  cflags = {}
+  interval = 0.1
 }, config.plugins.build.internal)
 
 local function split(str, splitter)
@@ -41,9 +36,15 @@ local function split(str, splitter)
   table.insert(t, str:sub(s))
   return t
 end
+local function table_concat(t1, t2)
+  local t = {}
+  for i,v in ipairs(t1) do table.insert(t, v) end
+  for i,v in ipairs(t2) do table.insert(t, v) end
+  return t
+end
 
 
-local function get_field(target, path, field) if path and target and  target.files and target.files[path] then return target.files[path][field] or target[field] or internal[field] end return target[field] or internal[field] end
+local function get_field(target, path, field) if path and target and  target.files and target.files[path] then return target.files[path][field] or target[field] or internal[field] end return target[field] or internal[field] or build[field] end
 local function get_cflags(target, path) return get_field(target, path, "cflags") end
 local function get_cxxflags(target, path) return get_field(target, path, "cxxflags") end
 local function get_type(target) return get_field(target, nil, "type") end
@@ -66,8 +67,8 @@ local function get_compiler(target, path)
       if path:find("^" .. v) then return nil end
     end
   end
-  if path:find("%.c$") then return get_field(target, path, "cc") end
-  if path:find("%.cc$") or path:find("%.cpp$") then return get_field(target, path, "cxx") end
+  if path:find("%.c$") then return split(get_field(target, path, "cc"), "%s+") end
+  if path:find("%.cc$") or path:find("%.cpp$") then return split(get_field(target, path, "cxx"), "%s+") end
   return nil
 end
 local function get_archiver(target) return get_field(target, nil, "ar") end
@@ -100,6 +101,7 @@ function internal.build(target, callback)
   local dependencies = {}
   local objects = {}
   local stats = {}
+  local max_ostat = nil
   common.mkdirp(target.obj or "obj")
   for i, v in ipairs(files) do
     local handle = (target.name .. v):gsub("[/\\]+", "_")
@@ -111,7 +113,7 @@ function internal.build(target, callback)
   for i, d in ipairs(dependencies) do
     local d_stat = system.get_file_info(d)
     if not d_stat or d_stat.modified < stats[i].modified then
-      table.insert(dependency_jobs, { get_compiler(target, files[i]), "-MM", files[i], "-MF", d, table.unpack(get_compile_flags(target, files[i])) })
+      table.insert(dependency_jobs, table_concat(get_compiler(target, files[i]), { "-MM", files[i], "-MF", d, table.unpack(get_compile_flags(target, files[i])) }))
     end
   end
 
@@ -120,6 +122,7 @@ function internal.build(target, callback)
     local compile_jobs = {}
     for i, d in ipairs(dependencies) do
       local o_stat = system.get_file_info(objects[i])
+      if o_stat and (not max_ostat or o_stat.modified > max_ostat) then max_ostat = o_stat.modified end
       local compile = not o_stat or o_stat.modified < stats[i].modified
       if not compile then
         for j, h in ipairs(split(io.open(d, "rb"):read("*all"):gsub("^[^:]+:%s*", ""), "[%s\\]+")) do
@@ -133,28 +136,32 @@ function internal.build(target, callback)
         end
       end
       if compile then
-        table.insert(compile_jobs, { get_compiler(target, files[i]), "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) })
+        table.insert(compile_jobs, table_concat(get_compiler(target, files[i]), { "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) }))
       end
     end 
     build.run_tasks(compile_jobs, function(status)
       if status ~= 0 then if callback then callback(status) end return end
       local link_job = {}
       local type = get_type(target)
-      local compiler = has_cpp and get_field(target, nil, "cxx") or get_field(target, nil, "cc")
+      local compiler = has_cpp and split(get_field(target, nil, "cxx"), "%s+") or split(get_field(target, nil, "cc"), "%s+")
       local binary = get_binary(target)
-      local binary_folder = common.dirname(binary)
-      if binary_folder then common.mkdirp(binary_folder) end
-      if not type or type == "executable" then
-        link_job = { compiler, "-o", binary }
-      elseif type == "static" then
-        link_job = { get_archiver(target), "-r", "-s", binary }
-      elseif type == "shared" then
-        link_job = { compiler, "-shared", "-o", binary }
+      local binary_stat = system.get_file_info(binary)
+      if not binary_stat or #compile_jobs > 0 or (max_ostat and binary_stat.modified < max_ostat) then
+        local binary_folder = common.dirname(binary)
+        if binary_folder then common.mkdirp(binary_folder) end
+        if not type or type == "executable" then
+          link_job = table_concat(compiler, { "-o", binary })
+        elseif type == "static" then
+          link_job = { get_archiver(target), "-r", "-s", binary }
+        elseif type == "shared" then
+          link_job = table_concat(compiler, { "-shared", "-o", binary })
+        end
+        for i, object in ipairs(objects) do table.insert(link_job, object) end
+        for i, ldflag in ipairs(get_ldflags(target) or {}) do table.insert(link_job, ldflag) end
+        build.run_tasks({ link_job }, callback)
+      else
+        if callback then callback(0) end
       end
-      for i, ldflag in ipairs(get_ldflags(target) or {}) do table.insert(link_job, ldflag) end
-      for i, object in ipairs(objects) do table.insert(link_job, object) end
-      print(table.unpack(link_job))
-      build.run_tasks({ link_job }, callback)
     end)
   end)
 end
