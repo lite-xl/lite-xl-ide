@@ -1,4 +1,6 @@
 local core = require "core"
+local common = require "core.common"
+local config = require "core.config"
 local build = require "plugins.build"
 
 -- Takes project configuration like so:
@@ -14,23 +16,26 @@ local build = require "plugins.build"
 -- `ar` specifies your archiver
 -- { name = string, cc = "gcc", cxx = "g++", ar = "ar", binary = path, ignored_files = { "src/api.c" }, cflags = string, ldflags = string, files = {}, obj = path, src = "." }
 
-local internal = {
+if not config.plugins.build.internal then config.plugins.build.internal = {} end
+local internal = common.merge({
   threads = build.threads,
   running_programs = nil,
   remaining_programs = {},
   interval = 0.1,
   cc = "gcc",
   cxx = "g++",
-  ar = "ar"
-}
+  ar = "ar",
+  ldflags = {},
+  cflags = {}
+}, config.plugins.build.internal)
 
 local function split(str, splitter)
   local t = {}
   local s = 1
   while true do
-    local e = str:find(splitter, s)
-    if not e then break end
-    table.insert(t, str:sub(s, e - 1)
+    local ns, e = str:find(splitter, s)
+    if not ns then break end
+    table.insert(t, str:sub(s, ns - 1))
     s = e + 1
   end
   table.insert(t, str:sub(s))
@@ -38,129 +43,132 @@ local function split(str, splitter)
 end
 
 
-local function run_commands(cmd, on_line, on_done)
-  core.add_thread(function()
-    while true do
-      coroutine.yield(0.1)
-    end
-    table.insert(internal.running_programs, process.start(cmd, { ["stderr"] = process.REDIRECT_STDOUT }))
-    
-    local function handle_output(output)
-      if output ~= nil then
-        local offset = 1
-        while offset < #output do
-          local newline = output:find("\n", offset) or #output
-          if on_line then
-            on_line(output:sub(offset, newline-1))
-          end
-          offset = newline + 1
-        end
+local function get_field(target, path, field) if path and target and  target.files and target.files[path] then return target.files[path][field] or target[field] or internal[field] end return target[field] or internal[field] end
+local function get_cflags(target, path) return get_field(target, path, "cflags") end
+local function get_cxxflags(target, path) return get_field(target, path, "cxxflags") end
+local function get_type(target) return get_field(target, nil, "type") end
+local function get_ldflags(target) return get_field(target, nil, "ldflags") end
+local function get_binary(target) return get_field(target, nil, "binary") end
+local function get_compiler(target, path) 
+  if not path then return get_field(target, path, "cc") end
+  if target.srcs then
+    local has_file = false
+    for i, v in ipairs(target.srcs) do
+      if path:find("^" .. v) then
+        has_file = true
+        break
       end
     end
-    
-    while make.running_program:running() do
-      handle_output(make.running_program:read_stdout())
-      coroutine.yield(make.interval)
+    if not has_file then return nil end
+  end
+  if target.ignored_files then
+    for i, v in ipairs(target.ignored_files) do
+      if path:find("^" .. v) then return nil end
     end
-    handle_output(make.running_program:read_stdout())
-    if on_done then
-      on_done(make.running_program:returncode())
-    end
-  end)
-end
-
-local function get_field(target, path, field) if path and target.files[path] return target.files[path][field] or target[field] or internal[field] end return target[field] or internal[field] end
-local function get_object_path(target, path) return get_field(target, path, "obj") end
-local function get_cflags(target, path) return get_field(target, path, "cflags") end
-local function get_type(target) return get_field(target, nil, "type") end
-local function get_ldflags(target) return get_field(target, "ldflags") end
-local function get_binary(target) return get_field(taret, nil, "binary") end
-local function get_compiler(target, path) 
+  end
   if path:find("%.c$") then return get_field(target, path, "cc") end
   if path:find("%.cc$") or path:find("%.cpp$") then return get_field(target, path, "cxx") end
   return nil
 end
 local function get_archiver(target) return get_field(target, nil, "ar") end
-local function get_depedencies(target, path, callback) 
-  local dependencies, total = {}, ""
-  run_commands({ get_compiler(target, path), "-MM", get_cflags(target, path) }, function(line)
-    total = total .. line
-  end, function()
-    callback(split(total:gsub("[^:]+%s*", ""), "%s+"))
-  end)
-end
 
-local function should_compile(target)
-  
-end
-
-local function get_object_files(target)
-  local object_files = {}
-  return object_files
-end
-
-
-function internal.is_running() return internal.running_programs or #internal.remaining_programs == 0 end
-function internal.terminate(callback)
-  remaining_programs = {}
-  if running_programs then
-    for i, running_program in ipairs(internal.running_programs) do
-      running_program:terminate()
+local function get_source_files(target)
+  local files = {}
+  for dir_name, file in core.get_project_files() do
+    local src = file.filename
+    if dir_name == core.project_dir and file.type == "file" then
+      local compiler = get_compiler(target, src) 
+      if compiler then table.insert(files, src) end
     end
   end
-  internal.running_programs = nil
-  if callback then callback() end
+  return files
 end
 
+
+local function get_compile_flags(target, file)
+  if file:find("%.cpp$") or file:find("%.cc") then return get_field(target, file, "cxxflags") end
+  return get_field(target, file, "cflags")
+end
 
 function internal.build(target, callback)
   local commands = {}
-  local compiled_files = {}
-  for dir_name, file in core.get_project_files() do
-    local src = file
-    if should_compile(src) then
-      local target = get_object_path(file)
-      local obj_stat = system.get_file_info(target)
-      local src_stat = system.get_file_info(src)
-      local compile = not obj_stat or obj_stat.mtime < src_stat.mtime
+  local files = get_source_files(target)
+  if #files == 0 then error("can't find source files for project") end
+  local has_cpp = false
+  for i, v in ipairs(files) do if v:find(".cpp$") or v:find("*.cc") then has_cpp = true end end
+  -- pick targets for dependency generation
+  local dependencies = {}
+  local objects = {}
+  local stats = {}
+  common.mkdirp(target.obj or "obj")
+  for i, v in ipairs(files) do
+    local handle = (target.name .. v):gsub("[/\\]+", "_")
+    dependencies[i] = (target.obj or "obj") .. PATHSEP .. handle .. ".d"
+    objects[i] = (target.obj or "obj") .. PATHSEP .. handle .. ".o"
+    stats[i] = system.get_file_info(v)
+  end
+  local dependency_jobs = {}
+  for i, d in ipairs(dependencies) do
+    local d_stat = system.get_file_info(d)
+    if not d_stat or d_stat.modified < stats[i].modified then
+      table.insert(dependency_jobs, { get_compiler(target, files[i]), "-MM", files[i], "-MF", d, table.unpack(get_compile_flags(target, files[i])) })
+    end
+  end
+
+  build.run_tasks(dependency_jobs, function(status)
+    if status ~= 0 then if callback then callback(status) end return end
+    local compile_jobs = {}
+    for i, d in ipairs(dependencies) do
+      local o_stat = system.get_file_info(objects[i])
+      local compile = not o_stat or o_stat.modified < stats[i].modified
       if not compile then
-        for i, depdendency in ipairs(get_dependencies(src)) do
-          local stat = system.get_file_info(dependency)
-          if stat and stat.mtime > src_stat.mtime then
-            compile = true
+        for j, h in ipairs(split(io.open(d, "rb"):read("*all"):gsub("^[^:]+:%s*", ""), "[%s\\]+")) do
+          if h then
+            local h_stat = system.get_file_info(h)
+            if h_stat and o_stat.modified < h_stat.modified then
+              compile = true
+              break
+            end
           end
         end
       end
-      if compile then 
-        table.insert(commands, { get_compiler(src), table.unpack(get_cflags(target, src)), "-c", "-o", get_object_path(target, src) })
+      if compile then
+        table.insert(compile_jobs, { get_compiler(target, files[i]), "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) })
       end
-    end
-  end
-  run_commands(commands, function() end, function(status)
-    if status == 0 then 
-      local command = {}
+    end 
+    build.run_tasks(compile_jobs, function(status)
+      if status ~= 0 then if callback then callback(status) end return end
+      local link_job = {}
       local type = get_type(target)
+      local compiler = has_cpp and get_field(target, nil, "cxx") or get_field(target, nil, "cc")
+      local binary = get_binary(target)
+      local binary_folder = common.dirname(binary)
+      if binary_folder then common.mkdirp(binary_folder) end
       if not type or type == "executable" then
-        command = { get_compiler(target), "-o", get_binary(target) }
+        link_job = { compiler, "-o", binary }
       elseif type == "static" then
-        command = { get_archiver(target), "-r", "-s", get_binary(target) }
+        link_job = { get_archiver(target), "-r", "-s", binary }
       elseif type == "shared" then
-        command = { get_compiler(target), "-shared", "-o", get_binary(target) }
+        link_job = { compiler, "-shared", "-o", binary }
       end
-      for i, ldflag in ipairs(get_ldflags(target)) do table.insert(command, ldflag) end
-      for i, object in ipairs(get_object_files(target)) do table.insert(command, object) end
-      run_commands({ command }, function() end, function(status)
-        if callback then callback(status) end
-      end)
-    else
-      if callback then callback(status) end
-    end
+      for i, ldflag in ipairs(get_ldflags(target) or {}) do table.insert(link_job, ldflag) end
+      for i, object in ipairs(objects) do table.insert(link_job, object) end
+      print(table.unpack(link_job))
+      build.run_tasks({ link_job }, callback)
+    end)
   end)
 end
 
 
 function internal.clean(target, callback)
-  for i, path in ipairs(get_object_files(target)) do os.remove(path) end
+  local files = get_source_files(target)
+  for i, v in ipairs(files) do
+    local handle = (target.name .. v):gsub("[/\\]+", "_")
+    local dependency = (target.obj or "obj") .. PATHSEP .. handle .. ".d"
+    local object = (target.obj or "obj") .. PATHSEP .. handle .. ".o"
+    if system.get_file_info(dependency) then os.remove(dependency) end
+    if system.get_file_info(object) then os.remove(object) end
+  end
   if system.get_file_info(get_binary(target)) then os.remove(get_binary(target)) end
   if callback then callback() end
 end

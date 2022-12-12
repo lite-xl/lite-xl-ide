@@ -14,7 +14,9 @@ local ToolbarView = require "plugins.toolbarview"
 local build = common.merge({
   targets = { },
   current_target = 1,
-  running_program = nil,
+  thread = nil,
+  interval = 0.01,
+  running_bundles = {},
   -- Config variables
   threads = 8,
   error_pattern = "^%s*([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
@@ -38,7 +40,6 @@ local function get_plugin_directory()
   return nil
 end
 
-
 local function jump_to_file(file, line, col)
   if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
     -- Check to see if the file is in the project. If it is, open it, and go to the line.
@@ -55,29 +56,121 @@ local function jump_to_file(file, line, col)
   end
 end
 
-function build.is_running()
-  return build.targets[build.current_target].backend.is_running(build.targets[build.current_target])
+
+function build.parse_compile_line(line)
+  local _, _, file, line_number, column, type, message = line:find(build.error_pattern)
+  if file and (type == "warning" or type == "error") then
+    return { type, file, line_number, column, message }
+  end
+  local _, _, file, line_number, column, message = line:find(build.file_pattern)
+  return file and { "info", file, line_number, (column or 1), message } or line
 end
+
+
+local function default_on_line(line)
+  build.message_view:add_message(build.parse_compile_line(line))
+end
+
+-- accept a table of commands. Run as many as we have threads. 
+function build.run_tasks(tasks, on_done, on_line)
+  if #tasks == 0 then
+    if on_done then on_done(0) end
+    return
+  end
+  local bundle = { tasks = {}, on_done = on_done, on_line = (on_line or default_on_line)  }
+  for i, task in ipairs(tasks) do
+    table.insert(bundle.tasks, { cmd = task, program = nil, done = false })
+  end
+  table.insert(build.running_bundles, bundle)
+
+  if build.thread and core.threads[build.thread] and coroutine.status(core.threads[build.thread].cr) == "dead" then build.thread = nil end
+  if not build.thread then
+    build.thread = core.add_thread(function()
+      local function handle_output(bundle, output)
+        if output ~= nil then
+          local offset = 1
+          while offset < #output do
+            local newline = output:find("\n", offset) or #output
+            if bundle.on_line then
+              bundle.on_line(output:sub(offset, newline-1))
+            end
+            offset = newline + 1
+          end
+        end
+      end
+
+      while #build.running_bundles > 0 do
+        local total_running = 0
+        local yield_time = build.interval
+        local status, err = pcall(function()
+          for i, bundle in ipairs(build.running_bundles) do
+            local has_unfinished, bundle_finished
+            for _, task in ipairs(bundle.tasks) do
+              if not task.done then
+                has_unfinished = true
+                if task.program then
+                  handle_output(bundle, task.program:read_stdout())
+                  if task.program:running() then
+                    total_running = total_running + 1
+                  else
+                    task.done = true
+                    local status = task.program:returncode()
+                    if status ~= 0 then
+                      for _, killing_task in ipairs(bundle.tasks) do
+                        if killing_task.program then 
+                          killing_task.program:terminate() 
+                          total_running = total_running - 1
+                         end
+                      end
+                      bundle_finished = status
+                      break
+                    end
+                  end
+                end
+              end
+            end
+            if not has_unfinished and bundle_finished == nil then bundle_finished = 0 end
+            if bundle_finished ~= nil then 
+              if bundle.on_done then bundle.on_done(bundle_finished) end
+              table.remove(build.running_bundles, i)
+              yield_time = 0
+              break 
+            end
+          end
+          for i, bundle in ipairs(build.running_bundles) do
+            if total_running < build.threads then
+              for i,task in ipairs(bundle.tasks) do
+                if total_running >= build.threads then break end
+                if not task.done and not task.program then
+                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT })
+                  build.message_view:add_message(table.concat(task.cmd, " "))
+                  total_running = total_running + 1
+                end
+              end
+              if total_running >= build.threads then break end
+            end
+          end
+        end)
+        if not status then build.message_view:add_message({ "error", err }) end
+        coroutine.yield(yield_time)
+      end
+      build.thread = nil
+    end, "build-thread")
+  end
+end
+
+function build.is_running() return build.thread ~= nil end
+function build.output(line) core.log(line) end
 
 function build.set_target(target)
   build.current_target = target
   config.target_binary = build.targets[target].binary
 end
 
-function build.set_make_targets(targets)
+function build.set_targets(targets, type)
   build.targets = targets
-  for i,v in ipairs(targets) do v.backend = require "plugins.build.make" end
+  for i,v in ipairs(targets) do v.backend = require("plugins.build." .. (type or "internal")) end
   config.target_binary = build.targets[1].binary
-end
-
-function build.set_targets(targets)
-  build.targets = targets
-  for i,v in ipairs(targets) do v.backend = require "plugins.build.internal" end
-  config.target_binary = build.targets[1].binary
-end
-
-function build.output(line)
-  core.log(line)
 end
 
 
@@ -87,13 +180,18 @@ function build.build(callback)
   build.message_view.visible = true
   local target = build.current_target
   build.message_view:add_message("Building " .. (build.targets[target].binary or "target") .. "...")
-  build.targets[target].backend.build(build.targets[target], function (status)
-    local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. status .. " Errors/Warnings."
-    build.message_view:add_message({ status == 0 and "good" or "error", line })
-    build.message_view.visible = #build.message_view.messages > 0 or not build.close_drawer_on_success
-    build.output(line)
-    build.message_view.scroll.to.y = 0
+  local status, err = pcall(function() 
+    if not build.targets[target] then error("Can't find target " .. target) end
+    if not build.targets[target].backend then error("Can't find target " .. target .. " backend.") end
+    build.targets[target].backend.build(build.targets[target], function (status)
+      local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. status .. " Errors/Warnings."
+      build.message_view:add_message({ status == 0 and "good" or "error", line })
+      build.message_view.visible = #build.message_view.messages > 0 or not build.close_drawer_on_success
+      build.output(line)
+      build.message_view.scroll.to.y = 0
+    end)
   end)
+  if not status then build.message_view:add_message({ "error", err }) end
 end
 
 function build.run()
@@ -104,37 +202,48 @@ function build.run()
   if type(command) == "function" then
     command = command(build.targets[target])
   elseif type(command) == "string" then
-    command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. "; read'" }
+    command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
   end
-  run_command(command, function(line) 
-    local _, _, file, line_number, column, _, message = line:find(build.error_pattern)
-    if file then
-      build.message_view:add_message({ "warning", file, line_number, column, message })
-    else
-      build.message_view:add_message(line)
-    end
-    build.message_view.visible = #build.message_view.messages > 0
-  end)
+  build.run_tasks({ command })
 end
 
 function build.clean(callback)
-  if build.running_program and build.running_program:running() then return false end
+  if build.is_running() then return false end
   build.message_view:clear_messages()
   local target = build.current_target
-  build.output("Started clean " .. (build.targets[build.current_target].binary or "target") .. ".")
+  build.message_view.visible = true
+  build.message_view:add_message("Started clean " .. (build.targets[build.current_target].binary or "target") .. ".")
   build.targets[build.current_target].backend.clean(build.targets[build.current_target], function(...)
-    build.output("Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. ".")
+    build.message_view:add_message("Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. ".")
     if callback then callback(...) end
   end)
 end
 
 function build.terminate(callback)
   if not build.is_running() then return false end
-  build.message_view:clear_messages()
-  build.targets[build.current_target].backend.terminate(build.targets[build.current_target], function(...)
-    build.output("Killed running build.")
-    if callback then callback(...) end
-  end)
+  for i, bundle in ipairs(build.running_bundles) do
+    for j, task in ipairs(bundle.tasks) do 
+      if task.program and not task.done then 
+        task.program:terminate() 
+        task.done = true
+      end
+    end
+    bundle.on_done(1)
+  end
+  build.running_bundles = {}
+  build.message_view:add_message({ "warning", "Terminated running build." })
+  if callback then callback() end
+end
+
+function build.kill(callback)
+  if not build.is_running() then return false end
+  for i, bundle in ipairs(build.running_bundles) do
+    for j, task in ipairs(bundle.tasks) do 
+      if task.program then task.program:kill() end
+    end
+  end
+  build.message_view:add_message({ "error", "Killed running build." })
+  if callback then callback() end
 end
 
 
@@ -334,7 +443,7 @@ end, {
 
 local tried_term = false
 command.add(function()
-  return not build.running_program or not build.running_program:running()
+  return not build.is_running()
 end, {
   ["build:build"] = function()
     if #build.targets > 0 then
@@ -359,7 +468,7 @@ end, {
 })
 
 command.add(function()
-  return build.running_program and build.running_program:running()
+  return build.is_running()
 end, {
   ["build:terminate"] = function()
     build.terminate()
@@ -371,11 +480,11 @@ command.add(function()
   return config.target_binary and system.get_file_info(config.target_binary)
 end, {
   ["build:run-or-term-or-kill"] = function()
-    if build.running_program and build.running_program:running() then
+    if build.is_running() then
       if tried_term then
-        build.running_program:kill()
+        build.kill()
       else
-        build.running_program:terminate()
+        build.terminate()
         tried_term = true
       end
     else
@@ -400,6 +509,17 @@ keymap.add {
   ["ctrl+shift+b"]       = "build:clean",
   ["f6"]                 = "build:toggle-drawer"
 }
+
+core.add_thread(function()
+  if config.plugins.build.targets then
+    build.set_targets(config.plugins.build.targets, config.plugins.build.type)
+  else
+    build.set_targets({
+      { name = "debug", binary = common.basename(core.project_dir) .. "-debug", cflags = "-g", cxxflags = "-g" },
+      { name = "release", binary = common.basename(core.project_dir) .. "-release", cflags = "-O3", cxxflags = "-O3" },
+    })
+  end
+end)
 
 return build
 
