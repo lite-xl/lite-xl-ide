@@ -11,6 +11,7 @@
     "name": "ide",
     "description": "A metapackage that turns lite into an IDE."
     "type": "metapackage",
+    "path": "plugins/ide",
     "dependencies": {
       "build": {},
       "debugger": {},

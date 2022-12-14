@@ -103,12 +103,12 @@ function gdb:cmd(command, on_finish)
 end
 
 function gdb:should_engage(path) return true end
-function gdb:step_into()            self:cmd("step") end
-function gdb:step_over()            self:cmd("next") end
-function gdb:step_out()             self:cmd("finish") end
-function gdb:continue()             self:cmd("cont") end
-function gdb:halt()                 self.running_program:interrupt() end
-function gdb:terminate()            self.running_program:terminate() end
+function gdb:step_into()  self:cmd("step") end
+function gdb:step_over()  self:cmd("next") end
+function gdb:step_out()   self:cmd("finish") end
+function gdb:continue()   self:cmd("cont") end
+function gdb:halt()       self.running_program:interrupt() end
+function gdb:terminate()  self.running_program:terminate() end
 function gdb:frame(idx)   self:cmd("f " .. idx) end
 
 
@@ -142,8 +142,8 @@ function gdb:print(expr, on_finish)
   end)
 end
 
-function gdb:variable(on_finish)
-  self:print(lines[i]:gsub("\n$", ""), function(result)
+function gdb:variable(variable, on_finish)
+  self:print(variable, function(result)
     on_finish(result:gsub("\\n$", ""))
   end)
 end
@@ -168,7 +168,7 @@ function gdb:stacktrace(on_finish)
 end
 
 function gdb:instruction(on_finish)
-  on_finish(table.unpack(self.frame))
+  on_finish(table.unpack(self.stack_frame))
 end
 
 function gdb:loop()
@@ -189,7 +189,7 @@ function gdb:loop()
           elseif attributes.frame and attributes.bkptno == "1" then
             self.debugger_started()
           elseif attributes.reason == "end-stepping-range" and attributes.frame and attributes.frame.file and attributes.frame.line then
-            self.frame = {
+            self.stack_frame = {
               attributes.frame.file,
               tonumber(attributes.frame.line),
               attributes.frame.func
@@ -197,7 +197,7 @@ function gdb:loop()
             self.debugger_stopped()
           else
             if attributes.frame and attributes.frame.file and attributes.frame.line then
-              self.frame = {
+              self.stack_frame = {
                 attributes.frame.file,
                 tonumber(attributes.frame.line),
                 attributes.frame.func

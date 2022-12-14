@@ -107,6 +107,11 @@ function model:completed()
   self.active = nil
 end
 
+function model:frame(idx)
+  if self.state ~= "stopped" then error("can only be completed from stopped state, not while " .. self.state) end
+  return self.active:frame(idx)
+end
+
 function model:stacktrace(callback)
   if self.state ~= "stopped" then error("can only be completed from stopped state, not while " .. self.state) end
   return self.active:stacktrace(callback)
@@ -114,12 +119,7 @@ end
 
 function model:variable(name, callback)
   if self.state ~= "stopped" then error("can only be completed from stopped state, not while " .. self.state) end
-  return self.active:variable(callback)
-end
-
-function model:frame(idx, callback)
-  if self.state ~= "stopped" then error("can only be completed from stopped state, not while " .. self.state) end
-  return self.active:frame(idx, callback)
+  return self.active:variable(name, callback)
 end
 
 function model:instruction(callback)

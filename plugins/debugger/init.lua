@@ -12,25 +12,6 @@ The debugger plugin is architected as follows:
 
 ## Model Layer
 
-## Functions
-
-* `stacktrace(callback)`
-* `variable(name, callback)`
-* `instruction(callback)`
-* `start(path, arguments, paused, exited)`
-* `instruction(callback)`
-* `continue()`
-* `step_over()`
-* `step_into()`
-* `step_out()`
-* `halt()`
-* `stopped()`
-* `frame(idx)`
-* `completed()`
-* `add_breakpoint(path, line)`
-* `remove_breakpoint(path, line)`
-* `has_breakpoint(path, line)`
-
 ### States
 
 The model layer has the following states.
@@ -136,7 +117,7 @@ local docview_update = DocView.update
 
 
 local debugger = {
-  drawer_visible = false,
+  drawer_visible = nil,
   state = nil,
   instruction = nil,
   
@@ -156,35 +137,29 @@ config.plugins.debugger = common.merge({
 }, config.plugins.debugger)
 
 local function jump_to_file(file, line)
-  if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
-    -- Check to see if the file is in the project. If it is, open it, and go to the line.
-    for i = 1, #core.project_directories do
-      if common.path_belongs_to(file, core.project_dir) then
-        local view = core.root_view:open_doc(core.open_doc(file))
-        if line then
-          view:scroll_to_line(math.max(1, line - 20), true)
-          view.doc:set_selection(line, 1, line, 1)
-        end
-        break
+  -- Check to see if the file is in the project. If it is, open it, and go to the line.
+  for i = 1, #core.project_directories do
+    if common.path_belongs_to(file, core.project_dir) then
+      local view = core.root_view:open_doc(core.open_doc(file))
+      if line then
+        view:scroll_to_line(line, true, true)
+        view.doc:set_selection(line, 1, line, 1)
       end
+      break
     end
   end
 end
 
 function debugger:set_instruction(path, line)
-  if path then
-    self.instruction = { path, line }
-    jump_to_file(path, line)
-  else
-    self.instruction = nil
-  end
+  self.instruction = path and { path, line } or nil
+  if path then jump_to_file(path, line) end
 end
 
 function debugger:refresh()
   model:instruction(function(path, line, func) 
     self:set_instruction(path, line)
   end)
-  if self.drawer_visible then
+  if self:should_show_drawer() then
     self.stack_view:refresh()
     self.watch_result_view:refresh()
   end
@@ -196,9 +171,13 @@ end
 
 function debugger:exited()
   debugger.instruction = nil
-  self.drawer_visible = false
+  debugger.stack_view.stack = { }
+  if self.drawer_visible then self.drawer_visible = false end
 end
 
+function debugger:should_show_drawer()
+  return self.drawer_visible == true or (self.drawer_visible == nil and model.state ~= "inactive")
+end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
   if self.hovering_gutter and (model.state == "stopped" or model.state == "inactive") then
@@ -239,7 +218,7 @@ end
 
 function DocView:update()
   docview_update(self)
-  if not self.watch_calulating and self:is(DocView) and core.active_view == self and not self.watch_hover_value and debugger.state == "stopped" and self.last_moved_time and 
+  if not self.watch_calulating and self:is(DocView) and core.active_view == self and not self.watch_hover_value and model.state == "stopped" and self.last_moved_time and 
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
@@ -247,10 +226,10 @@ function DocView:update()
     if s then
       local _, e = self.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
       s, e = #self.doc.lines[line] - s + 1, e or col
-      local token = self.doc.lines[line]:sub(s, e)
+      local token = self.doc.lines[line]:sub(s, e):gsub("\n$", "")
       if #token > 1 and not self.watch_token then
-        debugger.print(token, function(result)
-          self.watch_hover_value = result:gsub("\\n", "")
+        model:variable(token, function(result)
+          self.watch_hover_value = result
         end)
       end
       self.watch_token = { line, s, e }
@@ -273,7 +252,8 @@ function DocView:draw()
   if self.watch_hover_value then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local w, h = style.font:get_width(self.watch_hover_value) + style.padding.x*2, style.font:get_height() + style.padding.y * 2
-    renderer.draw_rect(x, y, w, h, style.dim)
+    renderer.draw_rect(x, y, w, h, style.accent)
+    renderer.draw_rect(x+1, y+1, w-2, h-2, style.background3)
     renderer.draw_text(style.font, self.watch_hover_value, x + style.padding.x, y + style.padding.y, style.text)
   end
 end
@@ -286,7 +266,7 @@ function DebuggerWatchResultView:new()
   self.init_size = true
 end
 function DebuggerWatchResultView:update()
-  local dest = debugger.drawer_visible and self.target_size or 0
+  local dest = debugger:should_show_drawer() and self.target_size or 0
   if self.init_size then
     self.size.y = dest
     self.init_size = false
@@ -332,9 +312,7 @@ end
 
 
 local DebuggerWatchVariableDoc = Doc:extend()
-function DebuggerWatchVariableDoc:new()
-  DebuggerWatchVariableDoc.super.new(self)
-end
+
 function DebuggerWatchVariableDoc:text_input(text)
   if self:has_selection() then
     self:delete_to()
@@ -362,6 +340,7 @@ function DebuggerWatchVariableDoc:text_input(text)
     self:move_to(#text)
   end
 end
+
 function DebuggerWatchVariableDoc:delete_to(...)
   local line, col = self:get_selection(true)
   if self:has_selection() then
@@ -373,11 +352,13 @@ function DebuggerWatchVariableDoc:delete_to(...)
   end
   self:set_selection(line, col)
 end
+
 function DebuggerWatchVariableDoc:remove(line1, col1, line2, col2)
   if line1 == line2 then
     DebuggerWatchVariableDoc.super.remove(self, line1, col1, line2, col2)
   end
 end
+
 function DebuggerWatchVariableDoc:set_selection(line1, col1, line2, col2, swap)
   assert(not line2 == not col2, "expected 2 or 4 arguments")
   if swap then line1, col1, line2, col2 = line2, col2, line1, col1 end
@@ -389,18 +370,22 @@ function DebuggerWatchVariableDoc:set_selection(line1, col1, line2, col2, swap)
   end
   self.selections = { line1, col1, line2, col2 }
 end
+
+
 local DebuggerWatchVariableView = DocView:extend()
 function DebuggerWatchVariableView:new()
   DebuggerWatchVariableView.super.new(self, DebuggerWatchVariableDoc(self))
   self.target_size = config.plugins.debugger.drawer_size
   self.init_size = true
 end
+
 function DebuggerWatchVariableView:set_target_size(axis, value)
   if axis == "y" then
     self.target_size = value
     return true
   end
 end
+
 function DebuggerWatchVariableView:try_close(do_close) end
 function DebuggerWatchVariableView:get_scrollable_size() return 0 end
 function DebuggerWatchVariableView:get_gutter_width() return 0 end
@@ -434,6 +419,7 @@ end
 
 local DebuggerStackView = View:extend()
 debugger.DebuggerStackView = DebuggerStackView
+
 function DebuggerStackView:new()
   DebuggerStackView.super.new(self)
   self.stack = { }
@@ -443,8 +429,9 @@ function DebuggerStackView:new()
   self.hovered_frame = nil
   self.active_frame = nil
 end
+
 function DebuggerStackView:update()
-  local dest = debugger.drawer_visible and self.target_size or 0
+  local dest = debugger:should_show_drawer() and self.target_size or 0
   if self.init_size then
     self.size.y = dest
     self.init_size = false
@@ -453,24 +440,29 @@ function DebuggerStackView:update()
   end
   DebuggerStackView.super.update(self)
 end
+
 function DebuggerStackView:set_target_size(axis, value)
   if axis == "y" then
     self.target_size = value
     return true
   end
 end
+
 function DebuggerStackView:set_stack(stack)
   self.stack = stack
   self.hovered_frame = nil
   self.active_frame = 1
   core.redraw = true
 end
+
 function DebuggerStackView:get_item_height()
   return style.code_font:get_height() + style.padding.y*2
 end
+
 function DebuggerStackView:get_scrollable_size()
   return #self.stack and self:get_item_height() * (#self.stack + 1)
 end
+
 function DebuggerStackView:on_mouse_moved(px, py, ...)
   DebuggerStackView.super.on_mouse_moved(self, px, py, ...)
   if self.dragging_scrollbar then return end
@@ -486,9 +478,9 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
   end
   if self.hovered_frame then
     if clicks >= 2 then
-      debugger.frame(self.hovered_frame - 1)
+      model:frame(self.hovered_frame - 1)
       self.active_frame = self.hovered_frame
-      debugger.set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
+      debugger:set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
     end
     jump_to_file(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
     return true;
@@ -510,6 +502,7 @@ function DebuggerStackView:draw()
   end
   self:draw_scrollbar()
 end
+
 function DebuggerStackView:refresh(on_finish)
   model:stacktrace(function(stack)
     self:set_stack(stack)
@@ -574,6 +567,7 @@ end, {
     if model.state == "stopped" then
       model:continue()
     elseif config.target_binary then
+      debugger.last_start_time = system.get_time()
       model:start(config.target_binary, config.target_binary_arguments, function()
         debugger:paused()
       end, function() 
@@ -611,7 +605,7 @@ end, {
 command.add(function()
   return model.state == "running"
 end, {
-  ["debugger:halt"] =      function() model:halt() end,
+  ["debugger:halt"] = function() model:halt() end,
 })
 
 command.add(function()
