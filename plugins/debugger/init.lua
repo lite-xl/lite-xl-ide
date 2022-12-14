@@ -210,7 +210,7 @@ function DocView:draw_line_gutter(idx, x, y, width)
    if model:has_breakpoint(self.doc.abs_filename, idx) then
      renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger.breakpoint)
    end
-   if debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
+   if model.state == "stopped" and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
      renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger.instruction)
    end
   draw_line_gutter(self, idx, x, y, width)
@@ -312,6 +312,9 @@ end
 
 
 local DebuggerWatchVariableDoc = Doc:extend()
+function DebuggerWatchVariableDoc:new()
+  DebuggerWatchVariableDoc.super.new(self)
+end
 
 function DebuggerWatchVariableDoc:text_input(text)
   if self:has_selection() then
@@ -548,17 +551,22 @@ core.status_view:add_item({
   end
 })
 
-core.status_view:add_item({
+local item = core.status_view:add_item({
   predicate = function() return config.target_binary end,
   name = "debugger:status",
-  alignment = StatusView.Item.RIGHT,
-  get_item = function()
-    local dv = core.active_view
-    return {
-      style.text, model.state
-    }
-  end
+  alignment = StatusView.Item.RIGHT
 })
+item.on_draw = function(x, y, h, calc_only)
+  local color = {
+    stopped = style.debugger.breakpoint,
+    running = style.good,
+    starting = style.warn
+  }
+  local size = (h - style.padding.y * 2) / 2
+  renderer.draw_rect(x, y  + (h - size) / 2, size, size, color[model.state] or style.dim)
+  local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
+  return nx - x
+end
 
 command.add(function()
   return config.target_binary and system.get_file_info(config.target_binary) and (model.state == "stopped" or model.state == "inactive")

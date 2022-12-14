@@ -80,10 +80,10 @@ function model:step_out()
 end
 
 function model:halt()
-  if self.state ~= "halt" then error("can only be halted from running state, not while " .. self.state) end
+  if self.state ~= "running" then error("can only be halted from running state, not while " .. self.state) end
   self.state = "stopped"
   self.active:halt()
-  self.view_stopped()
+  self.view_paused()
 end
 
 function model:terminate()
@@ -95,9 +95,11 @@ function model:terminate()
 end
 
 function model:stopped()
-  if self.state ~= "running" then error("can only be stopped from running state, not while " .. self.state) end
-  self.state = "stopped"
-  self.view_paused()
+  if self.state ~= "stopped" then
+    if self.state ~= "running" then error("can only be stopped from running state, not while " .. self.state) end
+    self.state = "stopped"
+    self.view_paused()
+  end
 end
 
 function model:completed()
