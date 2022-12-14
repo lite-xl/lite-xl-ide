@@ -1,5 +1,119 @@
 -- mod-version:3 -- lite-xl 2.1
 
+
+--[[ 
+# Debugger Plugin
+
+The debugger plugin is architected as follows:
+
+1. A presentation layer (`init.lua`). The presentation layer is a number of dialogs that calls into the secondary layer to get information there.
+2. An agnostic model layer (`debugger.lua`). This layer represents the current state of the debugger, with no debugger specific info. Manages agnostic state, described below.
+3. A specific debugger layer (`gdb.lua`). Provides functions to read, and set state of the underlying debugger. Should manage as little state as possible in and of itself, purely functions to access the debugger. All functions take callbacks.
+
+## Model Layer
+
+## Functions
+
+* `stacktrace(callback)`
+* `variable(name, callback)`
+* `instruction(callback)`
+* `start(path, arguments, paused, exited)`
+* `instruction(callback)`
+* `continue()`
+* `step_over()`
+* `step_into()`
+* `step_out()`
+* `halt()`
+* `stopped()`
+* `frame(idx)`
+* `completed()`
+* `add_breakpoint(path, line)`
+* `remove_breakpoint(path, line)`
+* `has_breakpoint(path, line)`
+
+### States
+
+The model layer has the following states.
+
+1. Inactive
+2. Running
+3. Stopped
+
+#### Inactive
+
+In the inactive state, the debugger is compeltely inactive, and only renders breakpoints.
+
+#### Started
+
+In a started state. Can take input about actviating breakpoints, etc..
+
+#### Running
+
+In the running state, the debugger renders breakpoints, and a status icon showing that the program is running.
+
+#### Stopped
+
+In the stopped state, renders:
+
+* The instruction marker (which is retrieved upon immediate access to this state).
+* All breakpoints
+* Stack Trace
+* Debugger Variables
+* Hovered Variables
+
+### Transitions
+
+Transitions can be triggered by either the backend layer, or the user. Triggers are given as (<user> | <backend>)
+
+#### Inactive -> Starting (`debugger.start` | )
+
+Happens when a user manually initiates a start.
+
+#### Starting -> Stopped  ( | `debugger.started`)
+
+First callback from starting; debugger should pause when it's engaged at the primary entrypoint.
+
+* Active debugger determined based on file, active debugger set to that backend.
+* All breakpoints applied.
+* Continue
+
+#### Running -> Stopped (`debugger.break` | `debugger.stopped`)
+
+Happens on breakpoint trigger, or on break.
+
+* Watched variables queried
+* Stacktrace retrieved
+* Instruction point retrieved
+
+#### Stopped -> Running (`debugger.continue`, `debugger.step_into`, `debugger.step_out`, debugger.step_over` |)
+
+Happens when a user hits a step or continue function.
+
+#### Stopped -> Inactive (`debugger.terminate` | `debugger.completed`)
+
+Happens when the program completes, or the user terminates debugger.
+
+Any other state transitions are illegal, and will throw an error.
+
+## Backend Layer
+
+The backend has the following functions:
+
+* `variable(name, callback)`
+* `stacktrace(callback)`
+* `status(callback)`
+* `instruction(callback)`
+* `start(path, arguments, started, stopped, completed)`
+* `continue()`
+* `halt()`
+* `frame(idx)`
+* `terminate()`
+* `add_breakpoint(path, line)`
+* `remove_breakpoint(path, line)`
+* `should_engage(path)`
+
+--]]
+
 local core = require "core"
 local command = require "core.command"
 local keymap = require "core.keymap"
@@ -11,104 +125,35 @@ local config  = require "core.config"
 local View = require "core.view"
 local StatusView = require "core.statusview"
 
+local model = require "plugins.debugger.model"
+
 local draw_line_gutter = DocView.draw_line_gutter
-local on_mouse_moved = DocView.on_mouse_moved
-local on_mouse_pressed = DocView.on_mouse_pressed
+local docview_on_mouse_moved = DocView.on_mouse_moved
+local docview_on_mouse_pressed = DocView.on_mouse_pressed
 local draw_line_text = DocView.draw_line_text
 local docview_draw = DocView.draw
 local docview_update = DocView.update
 
--- General debugger framework.
-local debugger = {}
-style.debugger_breakpoint = { common.color "#ca3434" }
-style.debugger_execution_point = { common.color "#3434ca" }
+
+local debugger = {
+  drawer_visible = false,
+  state = nil,
+  instruction = nil,
+  
+}
+
+if not style.debugger then style.debugger = {} end
+style.debugger.breakpoint = style.debugger.breakpoint or { common.color "#ca3434" }
+style.debugger.instruction = style.debugger.instruction or { common.color "#3434ca" }
 
 config.plugins.debugger = common.merge({
   step_refresh_watches = true,
-  interval = 0.1,
+  interval = 0.01,
   drawer_size = 100,
   hover_time_watch = 1,
   hover_symbol_pattern_backward = "[^%s+-%(%)%*/;,]+",
-  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+"
+  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+",
 }, config.plugins.debugger)
-
--- Internals.
-debugger.breakpoints = { }
-debugger.execution_point = nil
-debugger.backends = { }
-debugger.drawer_visible = false
-debugger.state = nil
-debugger.last_start_time = 0
-debugger.output = function(line)
-  core.log(line)
-end
-debugger.active_debugger = nil
-setmetatable(debugger, { 
-  __index = function(self, key)
-    local active = rawget(debugger, "active_debugger")
-    local loc = rawget(debugger, key)
-    if loc or not active then
-      return loc
-    end
-    local val = active[key]
-    if type(val) == "function" then
-      return function(...)
-        return val(active, ...)
-      end
-    end
-    return val
-  end
-})
-
-function debugger.set_active_debugger(v)
-  debugger.active_debugger = v
-end
-
-function debugger.run(path)
-  for k,v in pairs(debugger.backends) do
-    if v.should_engage(path) then
-      debugger.set_active_debugger(v)
-      v:run(path)
-      break
-    end
-  end
-end
-
-function debugger.toggle_drawer(show)
-  if show == nil then
-    show = not debugger.drawer_visible
-  end
-  debugger.drawer_visible = show
-end
-
-function debugger.has_breakpoint_line(file, line)
-  return debugger.breakpoints[file] and debugger.breakpoints[file][line] ~= nil
-end
-
-function debugger.add_breakpoint_line(file, line)
-  debugger.breakpoints[file] = debugger.breakpoints[file] or { }
-  debugger.breakpoints[file][line] = true
-  if debugger.active_debugger then
-    debugger.active_debugger:add_breakpoint_line(file, line)
-  end
-end
-
-function debugger.remove_breakpoint_line(file, line)
-  if debugger.active_debugger then
-    debugger.active_debugger:remove_breakpoint_line(file, line)
-  end
-  if debugger.breakpoints[file] ~= nil then
-    debugger.breakpoints[file][line] = nil
-  end
-end
-
-function debugger.toggle_breakpoint_line(file, line)
-  if debugger.has_breakpoint_line(file, line) then
-    debugger.remove_breakpoint_line(file, line)
-  else
-    debugger.add_breakpoint_line(file, line)
-  end
-end
 
 local function jump_to_file(file, line)
   if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
@@ -126,56 +171,55 @@ local function jump_to_file(file, line)
   end
 end
 
-function debugger.set_execution_point(file, line)
-  if file then
-    debugger.execution_point = { file, line }
-    debugger.output("Setting execution point to " .. file .. (line and (":" .. line) or ""))
-    jump_to_file(file, line)
+function debugger:set_instruction(path, line)
+  if path then
+    self.instruction = { path, line }
+    jump_to_file(path, line)
   else
-    debugger.execution_point = nil
+    self.instruction = nil
   end
 end
 
-function debugger.set_state(state, transition, hint)
-  if state ~= debugger.state then
-    debugger.output("Setting debugger state to " .. state)
-    if transition == nil or transition then
-      if state == "running" then
-        debugger.set_execution_point(nil)
-        debugger.toggle_drawer(false)
-      elseif state == "stopped" then
-        if config.plugins.debugger.step_refresh_watches then
-          debugger.watch_result_view:refresh()
-        end
-        if debugger.stack_view.stack and hint and hint.frame and 
-          #debugger.stack_view.stack > 0 and debugger.stack_view.stack[1][1] and
-          hint.frame[1] == debugger.stack_view.stack[1][1] and 
-          hint.frame[2] == debugger.stack_view.stack[1][3]
-        then
-          debugger.stack_view.stack[1][4] = hint.frame[3]
-          debugger.set_execution_point(hint.frame[2], hint.frame[3])
-        else
-          debugger.stack_view:refresh(function(backtrace) 
-            debugger.set_execution_point(backtrace[1][3], backtrace[1][4])
-          end)
-        end
-        debugger.toggle_drawer(true)
-      end
-    elseif state == "done" then
-      debugger.stack_view.set_stack({ })
-      debugger.watch_result_view.refresh()
-      debugger.toggle_drawer(false)
+function debugger:refresh()
+  model:instruction(function(path, line, func) 
+    self:set_instruction(path, line)
+  end)
+  if self.drawer_visible then
+    self.stack_view:refresh()
+    self.watch_result_view:refresh()
+  end
+end
+
+function debugger:paused()
+  self:refresh()
+end
+
+function debugger:exited()
+  debugger.instruction = nil
+  self.drawer_visible = false
+end
+
+
+function DocView:on_mouse_pressed(button, x, y, clicks)
+  if self.hovering_gutter and (model.state == "stopped" or model.state == "inactive") then
+    local minline, maxline = core.active_view:get_visible_line_range()
+    local _, docy = core.active_view:get_line_screen_position(minline)
+    local line = minline + math.floor((y - docy) / self:get_line_height())
+    if not model:has_breakpoint(self.doc.abs_filename, line) then
+      model:add_breakpoint(self.doc.abs_filename, line)
+    else
+      model:remove_breakpoint(self.doc.abs_filename, line)
     end
-    debugger.state = state
+    return true
   end
+  return docview_on_mouse_pressed(button, x, y, clicks)
 end
 
---------------------------- UI Elements
 function DocView:on_mouse_moved(x, y, ...)
   self.last_moved_time = { x, y, system.get_time() }
   self.watch_hover_value = nil
   self.watch_token = nil
-  if on_mouse_moved(self, x, y, ...) then return true end
+  if docview_on_mouse_moved(self, x, y, ...) then return true end
   local minline, maxline = self:get_visible_line_range()
   local _, docy = self:get_line_screen_position(minline)
   if x > self.position.x and x < self.position.x + self:get_gutter_width() then
@@ -184,11 +228,11 @@ function DocView:on_mouse_moved(x, y, ...)
 end
 
 function DocView:draw_line_gutter(idx, x, y, width)
-   if debugger.has_breakpoint_line(self.doc.abs_filename, idx) then
-     renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger_breakpoint)
+   if model:has_breakpoint(self.doc.abs_filename, idx) then
+     renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger.breakpoint)
    end
-   if debugger.execution_point and debugger.execution_point[1] == self.doc.abs_filename and idx == debugger.execution_point[2] then
-     renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger_execution_point)
+   if debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
+     renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger.instruction)
    end
   draw_line_gutter(self, idx, x, y, width)
 end
@@ -270,23 +314,19 @@ function DebuggerWatchResultView:draw()
   end
 end
 function DebuggerWatchResultView:refresh(idx)
-  if debugger.active_debugger and debugger.is_running() then
-    local lines = debugger.watch_variable_view.doc.lines
-    local total_lines = lines[1]:find("%S") and #lines or 0
-    if idx then
-      self.results[idx] = ""
-    else
-      self.results[total_lines+1] = nil
-    end
-    for i = 1, #lines do
-      if lines[i]:find("%S") and not idx or idx == i then
-        debugger.print(lines[i]:gsub("\n$", ""), function(result)
-          self.results[i] = result:gsub("\\n$", "")
-        end)
-      end
-    end
+  local lines = debugger.watch_variable_view.doc.lines
+  local total_lines = lines[1]:find("%S") and #lines or 0
+  if idx then
+    self.results[idx] = ""
   else
-    self.results = { }
+    self.results[total_lines+1] = nil
+  end
+  for i = 1, #lines do
+    if lines[i]:find("%S") and not idx or idx == i then
+      model:variable(lines[i]:gsub("\n$", ""), function(value)
+        self.results[i] = value
+      end)
+    end
   end
 end
 
@@ -448,7 +488,7 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
     if clicks >= 2 then
       debugger.frame(self.hovered_frame - 1)
       self.active_frame = self.hovered_frame
-      debugger.set_execution_point(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
+      debugger.set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
     end
     jump_to_file(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
     return true;
@@ -471,7 +511,7 @@ function DebuggerStackView:draw()
   self:draw_scrollbar()
 end
 function DebuggerStackView:refresh(on_finish)
-  debugger.backtrace(function(stack)
+  model:stacktrace(function(stack)
     self:set_stack(stack)
     if on_finish then
       on_finish(stack)
@@ -482,287 +522,11 @@ end
 debugger.stack_view = DebuggerStackView()
 debugger.watch_variable_view = DebuggerWatchVariableView()
 debugger.watch_result_view = DebuggerWatchResultView()
+
 local node = core.root_view:get_active_node()
 debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
 debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
 debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
-
-------------------------------------- GDB
-local function gdb_parse_string(str) 
-  local offset = 0
-  while offset ~= nil do
-    offset = str:find('"', offset+1)
-    if offset and str:sub(offset - 1, offset - 1) ~= "\\" then
-      return str:sub(1, offset - 1):gsub("\\\"", "\""), offset + 1
-    end
-  end
-end
-
-local gdb_parse_status_attributes
-local gdb_parse_status_array
-
-local function gdb_parse_status_value(value)
-  if value:sub(1, 1) == "{" then
-    return gdb_parse_status_attributes(value:sub(2))
-  elseif value:sub(1,1) == "[" then
-    return gdb_parse_status_array(value:sub(2))
-  elseif value:sub(1,1) == "\"" then
-    return gdb_parse_string(value:sub(2))
-  end
-  return nil
-end
-
-gdb_parse_status_array = function(values)
-  local array = { }
-  local offset = 1
-  if values:sub(offset, offset) == "]" then
-    return array
-  end
-  while true do
-    local value, length = gdb_parse_status_value(values:sub(offset))
-    table.insert(array, value)
-    offset = offset + length
-    if values:sub(offset, offset) == "," then
-      offset = offset + 1
-    elseif values:sub(offset, offset) == "]" then
-      return array, offset+1
-    end
-  end
-end
-
-
-gdb_parse_status_attributes = function(attributes)
-  local obj = { }
-  local offset = 1
-  while true do
-    local equal_idx = attributes:find("=", offset)
-    local attr_name = attributes:sub(offset, equal_idx-1)
-    local attr_value, length = gdb_parse_status_value(attributes:sub(equal_idx+1))
-    if not length then
-      return obj, offset + 1
-    end
-    obj[attr_name] = attr_value
-    offset = length + equal_idx + 1
-    if attributes:sub(offset, offset) == "," then
-      offset = offset + 1
-    else
-      return obj, offset+1
-    end
-  end
-  return offset
-end
-
-local function gdb_parse_status_line(line)
-  local idx = line:find(",")
-  local type = line:sub(1, 1)
-  if idx and type == "*" or type == "=" then
-    return type, line:sub(2, idx - 1), gdb_parse_status_attributes(line:sub(idx+1))
-  elseif type == "~" then
-    return type, gdb_parse_string(line:sub(3))
-  elseif type == "^" then
-    local quote = line:find('"')
-    if idx and (not quote or idx < quote) then
-      return type, line:sub(2, idx - 1), gdb_parse_status_attributes(line:sub(idx+1))
-    else
-      return type, line:sub(2)
-    end
-  else
-    return type
-  end
-end
-
-debugger.backends.gdb = { 
-  running_program = nil,
-  command_queue = { },
-  breakpoints = { }
-}
-function debugger.backends.gdb:should_engage(path)
-  return true
-end
-function debugger.backends.gdb:cmd(command, on_finish)
-  debugger.output("Running GDB command " .. command:gsub("%%", "%%%%") .. ".")
-  table.insert(self.command_queue, { command, on_finish })
-  if debugger.running_thread and core.threads[debugger.running_thread] then
-    coroutine.resume(core.threads[debugger.running_thread].cr)
-  end
-end
-function debugger.backends.gdb:step_into()  self:cmd("step") end
-function debugger.backends.gdb:step_over()  self:cmd("next") end
-function debugger.backends.gdb:step_out()   self:cmd("finish") end
-function debugger.backends.gdb:continue()   self:cmd("cont") end
-function debugger.backends.gdb:halt()       self.running_program:interrupt() end
-function debugger.backends.gdb:is_running() return self.running_program ~= nil end
-function debugger.backends.gdb:frame(idx)   self:cmd("f " .. idx) end
-function debugger.backends.gdb:print(expr, on_finish) 
-  self:cmd("p " .. expr, function(t, category, result)
-    if result and type(result) == "table" then
-      local equals = result[1] and result[1]:find("=")
-      if equals then
-        on_finish(result[1]:sub(equals+1))
-      else
-        on_finish(result[1])
-      end
-    else
-        on_finish(result)    
-    end
-  end)
-end
-function debugger.backends.gdb:backtrace(on_finish)
-  self:cmd("backtrace", function(type, category, frames)
-    local stack = { }
-    for i,v in ipairs(frames) do
-      local str = string.gsub(v, "[%xx]+ in ", "")
-      local s,e = str:find(" at ")
-      if not s then
-        s,e = str:find(" from ")
-      end
-      if s then
-        local _, _, n, func, args = string.find(str:sub(1, s-1), "#(%d+)%s+(%S+) (.+)")
-        local _, _, file, line = string.find(str:sub(e + 1), "([^:]+):?(%d*)")
-        table.insert(stack, { func, args, file:gsub("\\n", ""), line and tonumber(line) })
-      end
-    end
-    on_finish(stack)
-  end)
-end
-function debugger.backends.gdb:terminate()
-  self:cmd("quit")
-  debugger.toggle_drawer(false)
-  debugger.set_execution_point(nil)
-end
-
-function debugger.backends.gdb:add_breakpoint_line(file, line)
-  if self.running_program then
-    self:cmd("b " .. file .. ":" .. line, function(type, category, attributes)
-      if attributes["bkpt"] then
-        if not self.breakpoints[file] then
-          self.breakpoints[file] = { }
-        end
-        self.breakpoints[file][line] = tonumber(attributes["bkpt"]["number"])
-      end
-    end)
-  end
-end
-
-
-
-function debugger.backends.gdb:add_function_breakpoint(func)
-  if self.running_program then
-    self:cmd("b " .. func)
-  end
-end
-
-function debugger.backends.gdb:remove_breakpoint_line(file, line)
-  if self.running_program and self.breakpoints[file] and type(self.breakpoints[file][line]) == "number" then
-    self:cmd("d " .. self.breakpoints[file][line])
-  end
-end
-
-function debugger.backends.gdb:loop()
-  local result = self.running_program:read_stdout()
-  if result == nil then return false end
-  if #result > 0 then
-    self.saved_result = self.saved_result .. result
-    while #self.saved_result > 0 do
-      local newline = self.saved_result:find("\n")
-      if not newline then break end
-      local type, category, attributes = gdb_parse_status_line(self.saved_result:sub(1, newline-1))
-      self.saved_result = self.saved_result:sub(newline + 1)
-      if type == "*" then
-        if category == "stopped" then
-          if attributes.reason == "exited-normally" or attributes.reason == "exited" then
-            debugger.terminate()
-          elseif attributes.frame and attributes.bkptno == "1" then
-            self.resume_on_command_completion = true
-            debugger.set_state("stopped", false)
-          elseif attributes.reason == "end-stepping-range" and attributes.frame and attributes.frame.file and attributes.frame.line then
-            debugger.set_state("stopped", true, { frame = {
-              attributes.frame.func,
-              attributes.frame.file,
-              tonumber(attributes.frame.line)
-            } })
-          else
-            if not self.resume_on_command_completion then
-              debugger.set_state("stopped")
-              self.accumulator = {}
-            else
-              debugger.state = "stopped"
-            end
-          end
-        elseif category == "running" then
-          debugger.set_state("running")
-        end
-      elseif type == "^" then
-        if (category == "done" or category == "error") and self.waiting_on_result then
-          self.waiting_on_result(type, category, category == "error" and attributes["msg"] or self.accumulator)
-        end
-        self.waiting_on_result = nil
-        self.accumulator = {}
-      elseif type == "~" then
-        table.insert(self.accumulator, category)
-      elseif type == "=" and self.waiting_on_result then
-        self.waiting_on_result(type, category, attributes)
-        self.waiting_on_result = nil
-      end
-    end
-  end
-  if not self.waiting_on_result and #self.command_queue > 0 then
-    if debugger.state == "running" then
-      debugger.halt()
-      self.resume_on_command_completion = true
-      debugger.set_state("indeterminate")
-    else
-      self.accumulator = {}
-      if self.running_program:write(self.command_queue[1][1] .. "\n") then
-        if self.command_queue[1][2] then
-          self.waiting_on_result = self.command_queue[1][2]
-        end
-        table.remove(self.command_queue, 1)
-      end
-    end
-  end
-  if not self.waiting_on_result and debugger.state == "stopped" and #self.command_queue == 0 and self.resume_on_command_completion then
-    self:continue()
-    self.resume_on_command_completion = false
-  end
-  coroutine.yield(config.plugins.debugger.interval)
-  return true
-end
-
-function debugger.backends.gdb:start(program, arguments)
-  debugger.output("Running GDB on " .. program .. ".")
-  debugger.toggle_drawer(false)
-  debugger.set_state("init")
-  debugger.last_start_time = system.get_time()
-  self.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments and {arguments} or {}) })
-  self.waiting_on_result = function(type, category, attributes)
-    self:cmd("set filename-display absolute")
-    self:cmd("start")
-    for file, v in pairs(debugger.breakpoints) do
-      for line, v in pairs(debugger.breakpoints[file]) do
-        self:add_breakpoint_line(file, line)
-      end
-    end
-  end
-  self.saved_result = ""
-  self.accumulator = {}
-  self.resume_on_command_completion = false
-end
-
-function debugger.backends.gdb:complete()
-  debugger.output("Finished running.")
-  self.running_program = nil
-  debugger.set_state("done")
-end
-
-function debugger.backends.gdb:run(program, arguments)
-  debugger.running_thread = core.add_thread(function()
-    debugger.start(program, arguments)
-    while debugger.loop() do end
-    debugger.complete()
-  end)
-end
-
 
 core.status_view:add_item({
   predicate = function() return config.target_binary end,
@@ -791,52 +555,84 @@ core.status_view:add_item({
   end
 })
 
+core.status_view:add_item({
+  predicate = function() return config.target_binary end,
+  name = "debugger:status",
+  alignment = StatusView.Item.RIGHT,
+  get_item = function()
+    local dv = core.active_view
+    return {
+      style.text, model.state
+    }
+  end
+})
+
 command.add(function()
-  return config.target_binary and system.get_file_info(config.target_binary)
+  return config.target_binary and system.get_file_info(config.target_binary) and (model.state == "stopped" or model.state == "inactive")
 end, {
   ["debugger:start-or-continue"] = function()
-    if debugger.active_debugger and debugger.is_running() then    
-      debugger.continue()
+    if model.state == "stopped" then
+      model:continue()
     elseif config.target_binary then
-      debugger.run(config.target_binary, config.target_binary_arguments)
+      model:start(config.target_binary, config.target_binary_arguments, function()
+        debugger:paused()
+      end, function() 
+        debugger:exited()
+      end)
     end
   end
 })
 
 command.add(function()
-  return debugger.active_debugger and debugger.is_running()
+  return core.active_view and core.active_view.doc and (model.state == "stopped" or model.state == "inactive")
 end, {
-  ["debugger:step-over"] = function() debugger.step_over() end,
-  ["debugger:step-into"] = function() debugger.step_into() end,
-  ["debugger:step-out"] = function() debugger.step_out() end,
-  ["debugger:break"] = function() debugger.halt() end,
-  ["debugger:terminate"] = function()  debugger.terminate() end
-})
-
-command.add(function(x, y, clicks) 
-  if not core.active_view or not core.active_view.doc or x == nil or y == nil then return end
-  local minline, maxline = core.active_view:get_visible_line_range()
-  local _, docy = core.active_view:get_line_screen_position(minline)
-  return x > core.active_view.position.x and x < core.active_view.position.x + core.active_view:get_gutter_width() and y > docy 
-end, {
-  ["debugger:apply-breakpoint-at-cursor"] = function(x, y, clicks)
-    local minline, maxline = core.active_view:get_visible_line_range()
-    local _, docy = core.active_view:get_line_screen_position(minline)
-    debugger.toggle_breakpoint_line(core.active_view.doc.abs_filename, minline + math.floor((y - docy) / core.active_view:get_line_height()))
-  end
-});
-
-command.add(nil, {
-  ["debugger:toggle-drawer"] = function() debugger.toggle_drawer() end,
   ["debugger:toggle-breakpoint"] = function()
-    if core.active_view and core.active_view.doc then
-      local line1, col1, line2, col2, swap = core.active_view.doc:get_selection(true)
-      if line1 then
-        debugger.toggle_breakpoint_line(core.active_view.doc.abs_filename, line1);
+    local line1, col1, line2, col2, swap = core.active_view.doc:get_selection(true)
+    if line1 then
+      if model:has_breakpoint(core.active_view.doc.abs_filename, line1) then
+        model:add_breakpoint(core.active_view.doc.abs_filename, line1)
+      else
+        model:remove_breakpoint(core.active_view.doc.abs_filename, line1)
       end
     end
-  end,
+  end
 })
+
+command.add(nil, {
+  ["debugger:toggle-drawer"] = function() debugger.drawer_visible = not debugger.drawer_visible end
+})
+
+command.add(function()
+  return model.state == "running" or model.state == "stopped"
+end, {
+  ["debugger:terminate"] = function() model:terminate() end
+})
+
+command.add(function()
+  return model.state == "running"
+end, {
+  ["debugger:halt"] =      function() model:halt() end,
+})
+
+command.add(function()
+  return model.state == "stopped"
+end, {
+  ["debugger:step-over"] = function() model:step_over() end,
+  ["debugger:step-into"] = function() model:step_into() end,
+  ["debugger:step-out"] =  function() model:step_out() end,
+})
+
+keymap.add { 
+  ["f7"]                 = "debugger:step-over",
+  ["shift+f7"]           = "debugger:step-into",
+  ["ctrl+f7"]            = "debugger:step-out",
+  ["f8"]                 = "debugger:start-or-continue", 
+  ["ctrl+f8"]            = "debugger:halt",
+  ["shift+f8"]           = "debugger:terminate",
+  ["f9"]                 = "debugger:toggle-breakpoint",
+  ["f12"]                = "debugger:toggle-drawer",
+}
+
 
 local has_build, build = core.try(require, 'plugins.build')
 if has_build then
@@ -845,16 +641,5 @@ if has_build then
   build.build_bar_view.toolbar_commands[4] = { symbol = '$', command = "debugger:terminate"}
 end
 
-keymap.add { 
-  ["f7"]                 = "debugger:step-over",
-  ["shift+f7"]           = "debugger:step-into",
-  ["ctrl+f7"]            = "debugger:step-out",
-  ["f8"]                 = "debugger:start-or-continue", 
-  ["ctrl+f8"]            = "debugger:break", 
-  ["shift+f8"]           = "debugger:terminate",
-  ["f9"]                 = "debugger:toggle-breakpoint",
-  ["f12"]                = "debugger:toggle-drawer",
-  ["lclick"]             = "debugger:apply-breakpoint-at-cursor"
-}
 
 return debugger
