@@ -136,7 +136,7 @@ function internal.build(target, callback)
         end
       end
       if compile then
-        table.insert(compile_jobs, table_concat(get_compiler(target, files[i]), { "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) }))
+        table.insert(compile_jobs, table_concat(get_compiler(target, files[i]), { "-fdiagnostics-color=always", "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) }))
       end
     end 
     build.run_tasks(compile_jobs, function(status)

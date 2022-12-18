@@ -31,7 +31,7 @@ local build = common.merge({
   warning_color = style.warn,
   good_color = style.good,
   drawer_size = 100,
-  close_drawer_on_success = true,
+  on_success = "minimize",
   terminal = "xterm",
   shell = "bash -c"
 }, config.plugins.build)
@@ -148,7 +148,7 @@ function build.run_tasks(tasks, on_done, on_line)
               for i,task in ipairs(bundle.tasks) do
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
-                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT })
+                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = { TERM = "ansi" } })
                   build.message_view:add_message(table.concat(task.cmd, " "))
                   total_running = total_running + 1
                 end
@@ -186,15 +186,17 @@ function build.build(callback)
   build.message_view.visible = true
   local target = build.current_target
   build.message_view:add_message("Building " .. (build.targets[target].binary or "target") .. "...")
+  build.message_view.minimized = false
   local status, err = pcall(function() 
     if not build.targets[target] then error("Can't find target " .. target) end
     if not build.targets[target].backend then error("Can't find target " .. target .. " backend.") end
     build.targets[target].backend.build(build.targets[target], function (status)
       local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. status .. " Errors/Warnings."
       build.message_view:add_message({ status == 0 and "good" or "error", line })
-      build.message_view.visible = #build.message_view.messages > 0 or not build.close_drawer_on_success
+      build.message_view.visible = status ~= 0 or build.on_success ~= "close"
       build.output(line)
       build.message_view.scroll.to.y = 0
+      if status == 0 and build.on_success == "minimize" then build.message_view.minimized = true end
     end)
   end)
   if not status then build.message_view:add_message({ "error", err }) end
@@ -204,11 +206,11 @@ function build.run()
   if build.is_running() then return false end
   build.message_view:clear_messages()
   local target = build.current_target
-  local command = build.targets[target].run or build.targets[target].binary
+  local command = build.targets[target].run or config.target_binary
   if type(command) == "function" then
     command = command(build.targets[target])
   elseif type(command) == "string" then
-    command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+    command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. table.concat(config.target_binary_arguments or {}) .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
   end
   build.run_tasks({ command })
 end
@@ -218,9 +220,11 @@ function build.clean(callback)
   build.message_view:clear_messages()
   local target = build.current_target
   build.message_view.visible = true
+  build.message_view.minimized = false
   build.message_view:add_message("Started clean " .. (build.targets[build.current_target].binary or "target") .. ".")
   build.targets[build.current_target].backend.clean(build.targets[build.current_target], function(...)
-    build.message_view:add_message("Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. ".")
+    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. "." })
+    if build.on_success == "minimize" then build.message_view.minimized = true end
     if callback then callback(...) end
   end)
 end
@@ -304,6 +308,7 @@ function BuildMessageView:new()
   BuildMessageView.super.new(self)
   self.messages = { }
   self.target_size = build.drawer_size
+  self.minimized = false
   self.scrollable = true
   self.init_size = true
   self.hovered_message = nil
@@ -314,7 +319,7 @@ function BuildMessageView:new()
 end
 
 function BuildMessageView:update()
-  local dest = self.visible and self.target_size or 0
+  local dest = self.visible and ((self.minimized and style.code_font:get_height() + style.padding.y * 2) or self.target_size) or 0
   if self.init_size then
     self.size.y = dest
     self.init_size = false
@@ -368,6 +373,24 @@ function BuildMessageView:on_mouse_moved(px, py, ...)
 end
 
 
+local ansi_colors = {
+  [30] = { 0, 0, 0 },
+  [31] = { 205, 49, 49 },
+  [32] = { 13, 188, 121 },
+  [33] = { 229, 229, 16 },
+  [34] = { 36, 114 , 200 },
+  [35] = { 188, 63, 188 },
+  [36] = { 17, 168, 205 },
+  [37] = { 229, 229, 229 },
+  [38] = { 102, 120, 102 },
+  [91] = { 241, 76, 76 },
+  [92] = { 35, 209, 139 },
+  [93] = { 245, 245, 67 },
+  [94] = { 59, 142, 234 },
+  [95] = { 214, 112, 214 },
+  [96] = { 41, 184, 219 },
+  [97] = { 255, 255, 255 }
+}
 function BuildMessageView:draw()
   self:draw_background(style.background3)
   local h = style.code_font:get_height()
@@ -392,6 +415,7 @@ function BuildMessageView:draw()
     common.draw_text(style.code_font, colors[subtitle[1]] or style.accent, subtitle[2], "left", x + style.padding.x, self.position.y + style.padding.y, 0, h)
   end
   core.push_clip_rect(self.position.x, self.position.y + h + style.padding.y * 2, self.size.x, self.size.y - h - style.padding.y * 2)
+  local default_color = style.text
   for i,v in ipairs(self.messages) do
     local yoffset = style.padding.y * 2 + (i - 1)*item_height + style.padding.y + h
     if self.hovered_message == i or self.active_message == i then
@@ -403,8 +427,20 @@ function BuildMessageView:draw()
       else
         common.draw_text(style.code_font, colors[v[1]] or style.text, v[2], "left", ox + style.padding.x, oy + yoffset, 0, h)
       end
-    else
-      common.draw_text(style.code_font, style.text, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
+    else 
+      if v:find("\x1b") then
+        local x = ox + style.padding.x
+        while true do
+          local s,e,color = v:find("\x1b%[%d+;(%d+)m")
+          default_color = ansi_colors[tonumber(color)] or style.text
+          local line = v:sub(1, s and (s-1) or #v):gsub("\x1b%[[^a-zA-Z]*%a", "")
+          x = common.draw_text(style.code_font, default_color, line, "left", x, oy + yoffset, 0, h)
+          if not e then break end
+          v = v:sub(e + 1)
+        end
+      else 
+        common.draw_text(style.code_font, default_color, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
+      end
     end
   end
   core.pop_clip_rect()
@@ -433,6 +469,72 @@ build.message_view = BuildMessageView()
 local node = core.root_view:get_active_node()
 build.message_view_node = node:split("down", build.message_view, { y = true }, true)
 build.build_bar_node = TreeView.node.b:split("up", build.build_bar_view, {y = true})
+
+
+local function argument_string_to_table(str)
+  local s = str:find("%S")
+  local t = {}
+  local quote_open = nil
+  while true do
+    if quote_open then
+      local a = str:find(quote_open, s)
+      if not a then error("can't find closing quote in " .. str) end
+      table.insert(t, str:sub(s, a-1))
+      quote_open = nil
+    else 
+      local e = str:find("[\"' ]", s)
+      if not e then break end
+      local sample = str:sub(e, e)
+      if sample == '"' or sample == "'" then
+        if s < e then table.insert(t, str:sub(s, e - 1)) end
+        s = e + 1
+        quote_open = sample
+      else
+        _, e = str:find("%s*", s)
+        table.insert(t, str:sub(s,e))
+        s = e + 1
+      end
+    end
+  end
+  table.insert(t, str:sub(s))
+  return t
+end
+
+
+core.status_view:add_item({
+  predicate = function() return config.target_binary end,
+  name = "build:binary",
+  alignment = StatusView.Item.RIGHT,
+  get_item = function()
+    local dv = core.active_view
+    return {
+      style.text, config.target_binary .. (config.target_binary_arguments and "*" or "")
+    }
+  end,
+  command = function()
+     core.command_view:enter("Set Target Binary", {
+      text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(config.target_binary_arguments, " ")) or ""),
+      submit = function(text)
+        local i = text:find(" ")
+        if i then
+          config.target_binary = text:sub(1, i-1)
+          config.target_binary_arguments = argument_string_to_table(text:sub(i+1))
+        else
+          config.target_binary = text
+          config.target_binary_arguments = nil
+        end
+      end
+    })
+  end
+})
+
+command.add(function(x, y)
+  return core.active_view and core.active_view:is(BuildMessageView) and build.message_view.visible and (y == nil or y <= build.message_view.position.y + style.padding.y * 2 + style.code_font:get_height())
+end, {
+  ["build:toggle-minimize"] = function() 
+    build.message_view.minimized = not build.message_view.minimized
+  end
+})
 
 command.add(function()
   local mv = build.message_view
@@ -506,14 +608,23 @@ command.add(nil, {
   end
 })
 
+command.add(function() 
+  return core.active_view == build.message_view and build.message_view.visible 
+end, {
+  ["build:contextual-close-drawer"] = function()
+    build.message_view.visible = false
+  end
+})
+
 keymap.add {
-  ["lclick"]             = "build:jump-to-hovered",
+  ["lclick"]             = { "build:toggle-minimize", "build:jump-to-hovered" },
   ["ctrl+b"]             = { "build:build", "build:terminate" },
   ["ctrl+alt+b"]         = "build:rebuild",
   ["ctrl+e"]             = "build:run-or-term-or-kill",
   ["ctrl+t"]             = "build:next-target",
   ["ctrl+shift+b"]       = "build:clean",
-  ["f6"]                 = "build:toggle-drawer"
+  ["f6"]                 = "build:toggle-drawer",
+  ["escape"]             = "build:contextual-close-drawer"
 }
 
 core.add_thread(function()

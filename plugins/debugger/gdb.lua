@@ -239,7 +239,7 @@ function gdb:start(program, arguments, started, stopped, completed)
   self.debugger_stopped = stopped
   self.debugger_completed = completed
   self.running_thread = core.add_thread(function()
-    self.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments and {arguments} or {}) })
+    self.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments) })
     self.waiting_on_result = function(type, category, attributes)
       self:cmd("set filename-display absolute")
       self:cmd("start")

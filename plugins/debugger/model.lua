@@ -39,13 +39,14 @@ end
 
 
 function model:start(path, arguments, paused, exited)
+  if not path then error("requires a path") end
   if self.state ~= "inactive" then error("can only start from inactive state") end
   for k,v in pairs(self.backends) do if v.should_engage(path) then self.active = v break end end
   if not self.active then error("can't find appropriate backend for " .. path) end
   self.state = "starting"
   self.view_paused = paused
   self.view_exited = exited
-  self.active:start(path, arguments, function(...) self:started() end, function(...) self:stopped(...) end, function(...) self:continue(...) end)
+  self.active:start(path, arguments or {}, function(...) self:started() end, function(...) self:stopped(...) end, function(...) self:completed(...) end)
 end
 
 function model:started()

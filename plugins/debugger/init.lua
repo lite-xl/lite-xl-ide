@@ -524,33 +524,6 @@ debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true },
 debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
 debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
 
-core.status_view:add_item({
-  predicate = function() return config.target_binary end,
-  name = "debugger:binary",
-  alignment = StatusView.Item.RIGHT,
-  get_item = function()
-    local dv = core.active_view
-    return {
-      style.text, config.target_binary .. (config.target_binary_arguments and "*" or "")
-    }
-  end,
-  command = function()
-     core.command_view:enter("Set Target Binary", {
-      text = config.target_binary .. (config.target_binary_arguments and (" " .. config.target_binary_arguments) or ""),
-      submit = function(text)
-        local i = text:find(" ")
-        if i then
-          config.target_binary = text:sub(1, i-1)
-          config.target_binary_arguments = text:sub(i+1)
-        else
-          config.target_binary = text
-          config.target_binary_arguments = nil
-        end
-      end
-    })
-  end
-})
-
 local item = core.status_view:add_item({
   predicate = function() return config.target_binary end,
   name = "debugger:status",
