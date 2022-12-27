@@ -243,7 +243,7 @@ function DocView:draw_line_text(line, x, y)
     local x2 = self:get_line_screen_position(line, self.watch_token[3] + 1)
     renderer.draw_rect(x1, y, x2 - x1, self:get_line_height(), style.text)
   end
-  draw_line_text(self, line, x, y)
+  return draw_line_text(self, line, x, y)
 end
 
 function DocView:draw()
@@ -369,8 +369,8 @@ function DebuggerWatchHalf:set_target_size(axis, value)
   end
 end
 function DebuggerWatchHalf:draw_line_body(idx, x, y)
-  DebuggerWatchHalf.super.draw_line_body(self, idx, x, y)
   renderer.draw_rect(x - style.padding.x, y + self:get_line_height(), self.size.x, 1, style.divider)
+  return DebuggerWatchHalf.super.draw_line_body(self, idx, x, y)
 end
 
 function DebuggerWatchHalf:get_line_height()
@@ -399,6 +399,7 @@ function DebuggerWatchResultView:refresh(idx)
     self.doc.lines[idx] = ""
   else
     self.doc.lines[total_lines+1] = nil
+    self.doc.super.remove(self.doc, total_lines, math.huge, math.huge, math.huge)
   end
   for i = 1, #lines do
     if not idx or idx == i then

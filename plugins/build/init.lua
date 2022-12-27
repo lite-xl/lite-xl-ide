@@ -300,7 +300,7 @@ function DocView:draw_line_gutter(idx, x, y, width)
   then
     renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), build.error_color)
   end
-  doc_view_draw_line_gutter(self, idx, x, y, width)
+  return doc_view_draw_line_gutter(self, idx, x, y, width)
 end
 
 local BuildMessageView = View:extend()
