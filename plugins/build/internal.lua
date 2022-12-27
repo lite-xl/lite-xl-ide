@@ -52,19 +52,21 @@ local function get_ldflags(target) return get_field(target, nil, "ldflags") end
 local function get_binary(target) return get_field(target, nil, "binary") end
 local function get_compiler(target, path) 
   if not path then return get_field(target, path, "cc") end
-  if target.srcs then
-    local has_file = false
-    for i, v in ipairs(target.srcs) do
-      if path:find("^" .. v) then
-        has_file = true
-        break
+  if path:find("^/") ~= 1 then
+    if target.srcs then
+      local has_file = false
+      for i, v in ipairs(target.srcs) do
+        if path:find("^" .. v) then
+          has_file = true
+          break
+        end
       end
+      if not has_file then return nil end
     end
-    if not has_file then return nil end
-  end
-  if target.ignored_files then
-    for i, v in ipairs(target.ignored_files) do
-      if path:find("^" .. v) then return nil end
+    if target.ignored_files then
+      for i, v in ipairs(target.ignored_files) do
+        if path:find("^" .. v) then return nil end
+      end
     end
   end
   if path:find("%.c$") then return split(get_field(target, path, "cc"), "%s+") end
@@ -80,6 +82,11 @@ local function get_source_files(target)
     if dir_name == core.project_dir and file.type == "file" then
       local compiler = get_compiler(target, src) 
       if compiler then table.insert(files, src) end
+    end
+  end
+  if target.srcs then
+    for i, src in ipairs(target.srcs) do
+      if src:find("^/") == 1 and get_compiler(target, src) then table.insert(files, src) end
     end
   end
   return files

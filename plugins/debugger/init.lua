@@ -103,6 +103,8 @@ local Doc = require "core.doc"
 local common = require "core.common"
 local style  = require "core.style"
 local config  = require "core.config"
+local tokenizer = require "core.tokenizer"
+local syntax = require "core.syntax"
 local View = require "core.view"
 local StatusView = require "core.statusview"
 
@@ -138,14 +140,11 @@ config.plugins.debugger = common.merge({
 
 local function jump_to_file(file, line)
   -- Check to see if the file is in the project. If it is, open it, and go to the line.
-  for i = 1, #core.project_directories do
-    if common.path_belongs_to(file, core.project_dir) then
-      local view = core.root_view:open_doc(core.open_doc(file))
-      if line then
-        view:scroll_to_line(line, true, true)
-        view.doc:set_selection(line, 1, line, 1)
-      end
-      break
+  if file and system.get_file_info(file) then
+    local view = core.root_view:open_doc(core.open_doc(file))
+    if line then
+      view:scroll_to_line(line, true, true)
+      view.doc:set_selection(line, 1, line, 1)
     end
   end
 end
@@ -218,7 +217,7 @@ end
 
 function DocView:update()
   docview_update(self)
-  if not self.watch_calulating and self:is(DocView) and core.active_view == self and not self.watch_hover_value and model.state == "stopped" and self.last_moved_time and 
+  if model.state == "stopped" and not self.watch_calulating and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and not self.watch_hover_value and self.last_moved_time and 
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
@@ -480,7 +479,7 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
     return caught
   end
   if self.hovered_frame then
-    if clicks >= 2 then
+    if clicks >= 2 and model.state == "stopped" then
       model:frame(self.hovered_frame - 1)
       self.active_frame = self.hovered_frame
       debugger:set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
@@ -490,7 +489,10 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
   end
 end
 
+local c_syntax
+
 function DebuggerStackView:draw()
+  c_syntax = c_syntax or syntax.get(".c")
   self:draw_background(style.background3)
   local h = style.code_font:get_height()
   local item_height = self:get_item_height()
@@ -501,7 +503,13 @@ function DebuggerStackView:draw()
     if self.hovered_frame == i or self.active_frame == i then
       renderer.draw_rect(ox, oy + yoffset - style.padding.y, self.size.x, h + style.padding.y*2, style.line_highlight)
     end
-    common.draw_text(style.code_font, style.text, "#" .. i .. " " .. v[1] .. " " .. v[2] .. " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", ox + style.padding.x, oy + yoffset, 0, h)
+    local tx = ox + style.padding.y
+    tx = common.draw_text(style.code_font, style.text, "#" .. i .. " " .. v[1] .. " ", "left", tx, oy + yoffset, 0, h)
+    local tokens, state = tokenizer.tokenize(c_syntax, v[2])
+    for i, type, text in tokenizer.each_token(tokens) do
+      tx = common.draw_text(style.code_font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
+    end
+    tx = common.draw_text(style.code_font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
   end
   self:draw_scrollbar()
 end
