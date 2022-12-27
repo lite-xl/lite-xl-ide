@@ -257,14 +257,102 @@ function DocView:draw()
   end
 end
 
-local DebuggerWatchResultView = View:extend()
-function DebuggerWatchResultView:new()
-  DebuggerWatchResultView.super.new(self)
-  self.results = { }
+
+local DebuggerWatchVariableDoc = Doc:extend()
+function DebuggerWatchVariableDoc:new()
+  DebuggerWatchVariableDoc.super.new(self)
+end
+
+function DebuggerWatchVariableDoc:text_input(text, idx)
+  local line, col = self:get_selection()
+  local newline = text:find("\n")
+  if newline then 
+    if line == #self.lines and newline == 1 and #self.lines[line] == 1 then
+      debugger.watch_result_view:refresh(line)
+      core.set_active_view(core.root_view)
+      return
+    else
+      text = text:sub(1, newline) 
+    end
+  end
+  DebuggerWatchVariableDoc.super.text_input(self, text, idx)
+  if newline then
+    if self.lines[line] == "\n" then 
+      if line < #self.lines then
+        core.set_active_view(core.root_view)
+        if line > 1 then
+          DebuggerWatchVariableDoc.super.remove(self, line-1, #self.lines[line-1], line+1, 1)
+        else
+          DebuggerWatchVariableDoc.super.remove(self, line - 1, 0, line+2, 1)
+        end
+        debugger.watch_result_view:refresh()
+      end
+    else
+      debugger.watch_result_view:refresh(line)
+      core.set_active_view(core.root_view)
+    end
+  end
+end
+
+-- function DebuggerWatchVariableDoc:remove(line1, col1, line2, col2)
+--   print("DELETE", line1, col1, line2, col2, "K")
+--   if line2 == line1 then
+--     DebuggerWatchVariableDoc.super.remove(self, line1, col1, line2, col2)
+--   end
+-- end
+
+function DebuggerWatchVariableDoc:delete_to_cursor(idx, ...)
+  for sidx, line1, col1, line2, col2 in self:get_selections(true, idx) do
+    if line1 == line2 then
+      if col1 ~= col2 then
+        self:remove(line1, col1, line2, col2)
+      end
+      local l2, c2 = self:position_offset(line1, col1, ...)
+      if l2 == line1 then
+        self:remove(line1, col1, l2, c2)
+        if col1 < c2 then
+          line1, col1 = l2, c2
+        end
+        self:set_selections(sidx, line1, col1)
+      end
+    end
+  end
+  self:merge_cursors(idx)
+end
+
+
+function DebuggerWatchVariableDoc:set_selections(idx, line1, col1, line2, col2, swap, rm)
+  if line2 and line2 ~= line1 then
+    line2 = line1
+    col2 = #self.lines[line1] - 1
+  end
+  DebuggerWatchVariableDoc.super.set_selections(self, idx, line1, col1, line2, col2, swap, rm)
+end
+
+
+local DebuggerWatchHalf = DocView:extend()
+function DebuggerWatchHalf:new(title, doc)
+  DebuggerWatchHalf.super.new(self, doc)
+  self.title = title
   self.target_size = config.plugins.debugger.drawer_size
   self.init_size = true
 end
-function DebuggerWatchResultView:update()
+function DebuggerWatchHalf:try_close(do_close) end
+function DebuggerWatchHalf:get_scrollable_size() return self.size.y end
+function DebuggerWatchHalf:get_gutter_width() return 0 end
+function DebuggerWatchHalf:draw_line_gutter(idx, x, y) end
+
+function DebuggerWatchHalf:get_line_screen_position(line, col)
+  local x, y = self:get_content_offset()
+  local lh = self:get_line_height()
+  y = y + (line) * lh
+  if col then
+    return x + style.padding.x + self:get_col_x_offset(line, col), y
+  else
+    return x + style.padding.x, y
+  end
+end
+function DebuggerWatchHalf:update()
   local dest = debugger:should_show_drawer() and self.target_size or 0
   if self.init_size then
     self.size.y = dest
@@ -272,150 +360,63 @@ function DebuggerWatchResultView:update()
   else
     self:move_towards(self.size, "y", dest)
   end
-  DebuggerWatchResultView.super.update(self)
+  DebuggerWatchHalf.super.update(self)
 end
-function DebuggerWatchResultView:set_target_size(axis, value)
+function DebuggerWatchHalf:set_target_size(axis, value)
   if axis == "y" then
     self.target_size = value
     return true
   end
 end
-function DebuggerWatchResultView:get_item_height() return style.font:get_height() end
-function DebuggerWatchResultView:get_scrollable_size() return 0 end
-function DebuggerWatchResultView:draw()
-  self:draw_background(style.background2)
-  local h = style.code_font:get_height()
-  local ox, oy = self:get_content_offset()
-  common.draw_text(style.font, style.text, "Watch Values", "left", ox + style.padding.x, oy, self.size.x, h)
-  for i,v in ipairs(self.results) do
-    local yoffset = i * style.font:get_height()
-    common.draw_text(style.code_font, style.text, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
-  end
+function DebuggerWatchHalf:draw_line_body(idx, x, y)
+  DebuggerWatchHalf.super.draw_line_body(self, idx, x, y)
+  renderer.draw_rect(x - style.padding.x, y + self:get_line_height(), self.size.x, 1, style.divider)
 end
+
+function DebuggerWatchHalf:get_line_height()
+  return style.code_font:get_height() + style.padding.y * 2
+end
+
+function DebuggerWatchHalf:draw_background(color)
+  DebuggerWatchHalf.super.draw_background(self, color or style.background3)
+end
+
+function DebuggerWatchHalf:draw()
+  DebuggerWatchHalf.super.draw(self)
+  common.draw_text(style.font, style.text, self.title, "left", self.position.x + style.padding.x, self.position.y, self.size.x, self:get_line_height())
+  renderer.draw_rect(self.position.x, self.position.y + self:get_line_height(), self.size.x, 1, style.divider)
+end
+
+local DebuggerWatchResultView = DebuggerWatchHalf:extend()
+function DebuggerWatchResultView:new()
+  DebuggerWatchResultView.super.new(self, "Watch Values", DebuggerWatchVariableDoc(self))
+end
+
 function DebuggerWatchResultView:refresh(idx)
   local lines = debugger.watch_variable_view.doc.lines
   local total_lines = lines[1]:find("%S") and #lines or 0
   if idx then
-    self.results[idx] = ""
+    self.doc.lines[idx] = ""
   else
-    self.results[total_lines+1] = nil
+    self.doc.lines[total_lines+1] = nil
   end
   for i = 1, #lines do
-    if lines[i]:find("%S") and not idx or idx == i then
-      model:variable(lines[i]:gsub("\n$", ""), function(value)
-        self.results[i] = value
-      end)
+    if not idx or idx == i then
+      if lines[i]:find("%S") then
+        model:variable(lines[i]:gsub("\n$", ""), function(value)
+          self.doc.lines[i] = value
+        end)
+      else
+        self.doc.lines[i] = ""
+      end
     end
   end
 end
 
 
-local DebuggerWatchVariableDoc = Doc:extend()
-function DebuggerWatchVariableDoc:new()
-  DebuggerWatchVariableDoc.super.new(self)
-end
-
-function DebuggerWatchVariableDoc:text_input(text)
-  if self:has_selection() then
-    self:delete_to()
-  end
-  local newline = text:find("\n")
-  if newline then
-    local line, col = self:get_selection()
-    
-    if #text == 1 and col == 1 and #self.lines[line] == 1 then
-      if #debugger.watch_result_view.results >= line then
-        table.remove(debugger.watch_result_view.results, line)
-      end
-      if #self.lines > line then
-        self:raw_remove(line, 1, line+1, 1, self.undo_stack, system.get_time())
-      end
-    else
-      self:insert(line, col, text:sub(1, newline))
-      self:move_to(newline-1)
-      debugger.watch_result_view:refresh(line)
-    end
-    core.set_active_view(core.root_view)
-  else
-    local line, col = self:get_selection()
-    self:insert(line, col, text)
-    self:move_to(#text)
-  end
-end
-
-function DebuggerWatchVariableDoc:delete_to(...)
-  local line, col = self:get_selection(true)
-  if self:has_selection() then
-    self:remove(self:get_selection())
-  elseif col > 1 then
-    local line2, col2 = self:position_offset(line, col, ...)
-    self:remove(line, col, line2, col2)
-    line, col = sort_positions(line, col, line2, col2)
-  end
-  self:set_selection(line, col)
-end
-
-function DebuggerWatchVariableDoc:remove(line1, col1, line2, col2)
-  if line1 == line2 then
-    DebuggerWatchVariableDoc.super.remove(self, line1, col1, line2, col2)
-  end
-end
-
-function DebuggerWatchVariableDoc:set_selection(line1, col1, line2, col2, swap)
-  assert(not line2 == not col2, "expected 2 or 4 arguments")
-  if swap then line1, col1, line2, col2 = line2, col2, line1, col1 end
-  line1, col1 = self:sanitize_position(line1, col1)
-  line2, col2 = self:sanitize_position(line2 or line1, col2 or col1)
-  if line2 ~= line1 then
-    line2 = line1
-    col2 = #self.lines[line1] - 1
-  end
-  self.selections = { line1, col1, line2, col2 }
-end
-
-
-local DebuggerWatchVariableView = DocView:extend()
+local DebuggerWatchVariableView = DebuggerWatchHalf:extend()
 function DebuggerWatchVariableView:new()
-  DebuggerWatchVariableView.super.new(self, DebuggerWatchVariableDoc(self))
-  self.target_size = config.plugins.debugger.drawer_size
-  self.init_size = true
-end
-
-function DebuggerWatchVariableView:set_target_size(axis, value)
-  if axis == "y" then
-    self.target_size = value
-    return true
-  end
-end
-
-function DebuggerWatchVariableView:try_close(do_close) end
-function DebuggerWatchVariableView:get_scrollable_size() return 0 end
-function DebuggerWatchVariableView:get_gutter_width() return 0 end
-function DebuggerWatchVariableView:draw_line_gutter(idx, x, y) end
-
---  common.draw_text(style.code_font, style.text, "Watch Values", "left", ox + style.padding.x, oy, self.size.x, h)
-function DebuggerWatchVariableView:get_content_offset(...)
-  local x, y = DebuggerWatchVariableView.super.get_content_offset(self, ...)
-  return x, y + self:get_line_height()
-end
-function DebuggerWatchVariableView:get_line_screen_position(idx)
-  local x, y = self:get_content_offset()
-  return x + self:get_gutter_width() + style.padding.x, y + (idx-1)
-end
-function DebuggerWatchVariableView:draw_line_body(idx, x, y)
-  DebuggerWatchVariableView.super.draw_line_body(self, idx, x, y)
-  if idx == 1 then
-    renderer.draw_rect(x - self:get_gutter_width() - style.padding.x, y, self.size.x, 1, style.divider)
-  end
-  renderer.draw_rect(x - self:get_gutter_width() - style.padding.x, y + self:get_line_height(), self.size.x, 1, style.divider)
-end
-function DebuggerWatchVariableView:draw()
-  DebuggerWatchVariableView.super.draw(self)
-  local ox, oy = self:get_content_offset()
-  common.draw_text(style.font, style.text, "Watch Expressions", "left", ox + style.padding.x, oy - self:get_line_height(), self.size.x, self:get_line_height())
-end
-function DebuggerWatchVariableView:draw_background(color)
-  DebuggerWatchVariableView.super.draw_background(self, style.background3)
+  DebuggerWatchVariableView.super.new(self, "Watch Expressions", DebuggerWatchVariableDoc(self))
 end
 
 
@@ -470,7 +471,11 @@ function DebuggerStackView:on_mouse_moved(px, py, ...)
   if self.dragging_scrollbar then return end
   local ox, oy = self:get_content_offset()
   local offset = math.floor((py - oy) / self:get_item_height())
-  self.hovered_frame = offset >= 1 and offset <= #self.stack and offset
+  if px >= self.position.x and px < self.position.x + self.size.x then
+    self.hovered_frame = offset >= 1 and offset <= #self.stack and offset
+  else
+    self.hovered_frame = nil
+  end
 end
 
 function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
@@ -497,9 +502,9 @@ function DebuggerStackView:draw()
   local h = style.code_font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
-  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h)
+  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h + style.padding.y * 2)
   for i,v in ipairs(self.stack) do
-    local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y + h
+    local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y*2 + h
     if self.hovered_frame == i or self.active_frame == i then
       renderer.draw_rect(ox, oy + yoffset - style.padding.y, self.size.x, h + style.padding.y*2, style.line_highlight)
     end
@@ -535,7 +540,14 @@ debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right
 local item = core.status_view:add_item({
   predicate = function() return config.target_binary end,
   name = "debugger:status",
-  alignment = StatusView.Item.RIGHT
+  alignment = StatusView.Item.RIGHT,
+  command = function()
+    if model.state == "inactive" or model.state == "stopped" then
+      command.perform("debugger:start-or-continue")
+    elseif model.state == "running" then
+      command.perform("debugger:halt")
+    end
+  end
 })
 item.on_draw = function(x, y, h, calc_only)
   local color = {

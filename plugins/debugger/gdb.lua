@@ -172,8 +172,7 @@ function gdb:instruction(on_finish)
 end
 
 function gdb:loop()
-  local result = self.running_program:read_stdout()
-  print(result)
+  local result = self.running_program and self.running_program:read_stdout()
   if result == nil then return false end
   if #result > 0 then
     self.saved_result = self.saved_result .. result

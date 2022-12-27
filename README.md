@@ -4,6 +4,8 @@
 
 `lite-xl-ide` aims to be a suite a plugins for `lite-xl` that can turn it into a high-performance C/C++ IDE with minimal fuss.
 
+Please note, `lite-xl-ide` is still **experimental**; it is not ready for release. Use at your own risk.
+
 ## Quickstart
 
 To install, you can use [`lpm`](https://github.com/adamharrison/lite-xl-plugin-manager):
@@ -50,13 +52,12 @@ The debugger plugin acts as a front-end to `gdb`.
 * Allows watching variables by hovering over the appropriate symbol during debugging.
 * Allows traversing the callstack when stopped.
 * Allow to run debugged program with shell-like argument list.
+* Allows watching variables by adding them to a watchlist.
+* Allow clicking on the debugger status to change it (running -> break, inactive -> start, stopped -> continue).
 
 #### TODO
 
-* Allows watching variables by adding them to a watchlist.
 * Allows adding hovered watched to watchlist with right click context menu.
-* Make windows look nicer.
-* Allow clicking on the debugger status to change it (running -> break, inactive -> start, stopped -> continue).
 
 ### LSP
 
