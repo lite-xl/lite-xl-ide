@@ -399,7 +399,7 @@ function DebuggerWatchResultView:refresh(idx)
     self.doc.lines[idx] = ""
   else
     self.doc.lines[total_lines+1] = nil
-    self.doc.super.remove(self.doc, total_lines, math.huge, math.huge, math.huge)
+    --self.doc.super.remove(self.doc, total_lines, math.huge, math.huge, math.huge)
   end
   for i = 1, #lines do
     if not idx or idx == i then
