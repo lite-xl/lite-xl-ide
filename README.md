@@ -1,5 +1,7 @@
 # lite-xl IDE
 
+![lite-xl IDE with Debugger Open](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/debugger.png)
+
 [`lite-xl`](https://github.com/lite-xl/lite-xl) is a light-weight extensible text editor.
 
 `lite-xl-ide` aims to be a suite a plugins for `lite-xl` that can turn it into a high-performance C/C++ IDE with minimal fuss.
