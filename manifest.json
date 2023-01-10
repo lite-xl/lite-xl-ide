@@ -10,12 +10,11 @@
   }, {
     "name": "ide",
     "description": "A metapackage that turns lite into an IDE."
-    "type": "metapackage",
-    "path": "plugins/ide",
+    "path": "plugins/ide.lua",
     "dependencies": {
       "build": {},
       "debugger": {},
-      "lsp": {},
+      "lsp_c": {},
       "scm": {}
     }
   }]
