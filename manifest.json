@@ -1,14 +1,14 @@
 {
   "plugins": [{
-    "name": "build",
+    "id": "build",
     "description": "Plugin designed to integrate with `make` or `gcc` to build projects.",
     "path": "plugins/build"
   }, {
-    "name": "debugger",
+    "id": "debugger",
     "description": "Allows you to debug projects with `gdb`.",
     "path": "plugins/debugger"
   }, {
-    "name": "ide",
+    "id": "ide",
     "description": "A metapackage that turns lite into an IDE.",
     "path": "plugins/ide.lua",
     "dependencies": {
