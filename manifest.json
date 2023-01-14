@@ -1,5 +1,5 @@
 {
-  "plugins": [{
+  "addons": [{
     "id": "build",
     "description": "Plugin designed to integrate with `make` or `gcc` to build projects.",
     "path": "plugins/build"
