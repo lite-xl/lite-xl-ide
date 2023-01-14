@@ -6,10 +6,10 @@
   }, {
     "name": "debugger",
     "description": "Allows you to debug projects with `gdb`.",
-    "path": "plugins/debugger",
+    "path": "plugins/debugger"
   }, {
     "name": "ide",
-    "description": "A metapackage that turns lite into an IDE."
+    "description": "A metapackage that turns lite into an IDE.",
     "path": "plugins/ide.lua",
     "dependencies": {
       "build": {},
