@@ -19,12 +19,12 @@ local build = common.merge({
   running_bundles = {},
   -- Config variables
   threads = 8,
-  cc = "gcc",
-  cxx = "g++",
-  ar = "ar",
-  cflags = {},
-  cxxflags = {},
-  ldflags = {},
+  cc = os.getenv("CC") or "gcc",
+  cxx = os.getenv("CXX") or "g++",
+  ar = os.getenv("AR") or "ar",
+  cflags = os.getenv("CFLAGS") or {},
+  cxxflags = os.getenv("CXXFLAGS") or {},
+  ldflags = os.getenv("LDFLAGS") or {},
   error_pattern = "^%s*([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
   file_pattern = "^%s*([^:]+):(%d+):(%d*):? (.+)",
   error_color = style.error,
@@ -32,13 +32,13 @@ local build = common.merge({
   good_color = style.good,
   drawer_size = 100,
   on_success = "minimize",
-  terminal = "xterm",
-  shell = "bash -c"
+  terminal = (PLATFORM == "Windows" and os.getenv("COMSPEC") or "xterm"),
+  shell = (PLATFORM == "Windows" and "START /B" or "bash -c")
 }, config.plugins.build)
 
 
-local function get_plugin_directory() 
-  local paths = { 
+local function get_plugin_directory()
+  local paths = {
     USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
     DATADIR .. PATHSEP .. "plugins" .. PATHSEP .. "build"
   }
@@ -77,7 +77,7 @@ local function default_on_line(line)
   build.message_view:add_message(build.parse_compile_line(line))
 end
 
--- accept a table of commands. Run as many as we have threads. 
+-- accept a table of commands. Run as many as we have threads.
 function build.run_tasks(tasks, on_done, on_line)
   if #tasks == 0 then
     if on_done then on_done(0) end
@@ -123,8 +123,8 @@ function build.run_tasks(tasks, on_done, on_line)
                     local status = task.program:returncode()
                     if status ~= 0 then
                       for _, killing_task in ipairs(bundle.tasks) do
-                        if killing_task.program then 
-                          killing_task.program:terminate() 
+                        if killing_task.program then
+                          killing_task.program:terminate()
                           total_running = total_running - 1
                          end
                       end
@@ -136,11 +136,11 @@ function build.run_tasks(tasks, on_done, on_line)
               end
             end
             if not has_unfinished and bundle_finished == nil then bundle_finished = 0 end
-            if bundle_finished ~= nil then 
+            if bundle_finished ~= nil then
               if bundle.on_done then bundle.on_done(bundle_finished) end
               table.remove(build.running_bundles, i)
               yield_time = 0
-              break 
+              break
             end
           end
           for i, bundle in ipairs(build.running_bundles) do
@@ -148,7 +148,7 @@ function build.run_tasks(tasks, on_done, on_line)
               for i,task in ipairs(bundle.tasks) do
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
-                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = { TERM = "ansi" } })
+                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}) })
                   build.message_view:add_message(table.concat(task.cmd, " "))
                   total_running = total_running + 1
                 end
@@ -187,7 +187,7 @@ function build.build(callback)
   local target = build.current_target
   build.message_view:add_message("Building " .. (build.targets[target].binary or "target") .. "...")
   build.message_view.minimized = false
-  local status, err = pcall(function() 
+  local status, err = pcall(function()
     if not build.targets[target] then error("Can't find target " .. target) end
     if not build.targets[target].backend then error("Can't find target " .. target .. " backend.") end
     build.targets[target].backend.build(build.targets[target], function (status)
@@ -210,9 +210,17 @@ function build.run()
   if type(command) == "function" then
     command = command(build.targets[target])
   elseif type(command) == "string" then
-    command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. table.concat(config.target_binary_arguments or {}) .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+    if PLATFORM == "Windows" then
+      command = { build.shell, command, table.unpack(config.target_binary_arguments or {}) }
+    else
+      command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. table.concat(config.target_binary_arguments or {}, " ") .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+    end
   end
-  build.run_tasks({ command })
+  if PLATFORM == "Windows" then
+    os.execute(table.concat(command, " "))
+  else
+    build.run_tasks({ command })
+  end
 end
 
 function build.clean(callback)
@@ -232,13 +240,13 @@ end
 function build.terminate(callback)
   if not build.is_running() then return false end
   for i, bundle in ipairs(build.running_bundles) do
-    for j, task in ipairs(bundle.tasks) do 
-      if task.program and not task.done then 
-        task.program:terminate() 
+    for j, task in ipairs(bundle.tasks) do
+      if task.program and not task.done then
+        task.program:terminate()
         task.done = true
       end
     end
-    bundle.on_done(1)
+    if bundle.on_done then bundle.on_done(1) end
   end
   build.running_bundles = {}
   build.message_view:add_message({ "warning", "Terminated running build." })
@@ -248,7 +256,7 @@ end
 function build.kill(callback)
   if not build.is_running() then return false end
   for i, bundle in ipairs(build.running_bundles) do
-    for j, task in ipairs(bundle.tasks) do 
+    for j, task in ipairs(bundle.tasks) do
       if task.program then task.program:kill() end
     end
   end
@@ -427,7 +435,7 @@ function BuildMessageView:draw()
       else
         common.draw_text(style.code_font, colors[v[1]] or style.text, v[2], "left", ox + style.padding.x, oy + yoffset, 0, h)
       end
-    else 
+    else
       if v:find("\x1b") then
         local x = ox + style.padding.x
         while true do
@@ -438,7 +446,7 @@ function BuildMessageView:draw()
           if not e then break end
           v = v:sub(e + 1)
         end
-      else 
+      else
         common.draw_text(style.code_font, default_color, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
       end
     end
@@ -481,7 +489,7 @@ local function argument_string_to_table(str)
       if not a then error("can't find closing quote in " .. str) end
       table.insert(t, str:sub(s, a-1))
       quote_open = nil
-    else 
+    else
       local e = str:find("[\"' ]", s)
       if not e then break end
       local sample = str:sub(e, e)
@@ -531,7 +539,7 @@ core.status_view:add_item({
 command.add(function(x, y)
   return core.active_view and core.active_view:is(BuildMessageView) and build.message_view.visible and (y == nil or y <= build.message_view.position.y + style.padding.y * 2 + style.code_font:get_height())
 end, {
-  ["build:toggle-minimize"] = function() 
+  ["build:toggle-minimize"] = function()
     build.message_view.minimized = not build.message_view.minimized
   end
 })
@@ -540,7 +548,7 @@ command.add(function()
   local mv = build.message_view
   return mv.hovered_message and type(mv.messages[mv.hovered_message]) == "table" and #mv.messages[mv.hovered_message] > 2
 end, {
-  ["build:jump-to-hovered"] = function() 
+  ["build:jump-to-hovered"] = function()
     local mv = build.message_view
     mv.active_message = mv.hovered_message
     mv.active_file = system.absolute_path(common.home_expand(mv.messages[mv.hovered_message][2]))
@@ -608,8 +616,8 @@ command.add(nil, {
   end
 })
 
-command.add(function() 
-  return core.active_view == build.message_view and build.message_view.visible 
+command.add(function()
+  return core.active_view == build.message_view and build.message_view.visible
 end, {
   ["build:contextual-close-drawer"] = function()
     build.message_view.visible = false
@@ -635,8 +643,8 @@ core.add_thread(function()
     local srcs = nil
     if system.get_file_info("src") then srcs = { "src" } end
     build.set_targets({
-      { name = "debug", binary = common.basename(core.project_dir) .. "-debug", cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
-      { name = "release", binary = common.basename(core.project_dir) .. "-release", cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
+      { name = "debug", binary = common.basename(core.project_dir) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
+      { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
     })
   end
 end)
