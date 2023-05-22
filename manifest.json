@@ -1,14 +1,20 @@
 {
   "addons": [{
     "id": "build",
+    "version": "0.1",
+    "mod_version": "3",
     "description": "Plugin designed to integrate with `make` or `gcc` to build projects.",
     "path": "plugins/build"
   }, {
     "id": "debugger",
+    "version": "0.1",
+    "mod_version": "3",
     "description": "Allows you to debug projects with `gdb`.",
     "path": "plugins/debugger"
   }, {
     "id": "ide",
+    "version": "0.1",
+    "mod_version": "3",
     "description": "A metapackage that turns lite into an IDE.",
     "path": "plugins/ide.lua",
     "dependencies": {
