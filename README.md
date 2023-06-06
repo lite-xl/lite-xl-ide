@@ -13,13 +13,13 @@ Please note, `lite-xl-ide` is still **experimental**; it is not ready for releas
 To install, you can use [`lpm`](https://github.com/adamharrison/lite-xl-plugin-manager):
 
 ```bash
-lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm install ide
+lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm install ide --no-install-optional
 ```
 
 If you want to just try it out, you can always use `run` to try it in a new lite bottle:
 
 ```bash
-lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm run ide
+lpm run https://github.com/adamharrison/lite-xl-ide.git:main ide --no-install-optional
 ```
 
 Alternatively, if you don't have `lpm`, or don't want it, you can always pull the repository manually with `git`
