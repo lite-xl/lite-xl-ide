@@ -283,7 +283,7 @@ core.status_view:add_item({
         local has = false
         for i,v in ipairs(build.targets) do
           if text == v.name then
-            set_build_target(i)
+            build.set_target(i)
             has = true
           end
         end
