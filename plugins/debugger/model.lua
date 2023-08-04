@@ -49,10 +49,19 @@ function model:start(path, arguments, paused, exited)
   self.active:start(path, arguments or {}, function(...) self:started() end, function(...) self:stopped(...) end, function(...) self:completed(...) end)
 end
 
+function model:attach(terminal, backend, paused, exited)
+  if self.state ~= "inactive" then error("can only start from inactive state") end
+  self.active = backend
+  self.state = "starting"
+  self.view_paused = paused
+  self.view_exited = exited
+  self.active:attach(terminal, function(...) self:started() end, function(...) self:stopped(...) end, function(...) self:completed(...) end)
+end
+
 function model:started()
   if self.state ~= "starting" then error("can only started from starting state, not while " .. self.state) end
   self.state = "stopped"
-  for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:  add_breakpoint(path, line) end end end
+  for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:add_breakpoint(path, line) end end end
   self:continue()
 end
 

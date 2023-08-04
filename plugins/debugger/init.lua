@@ -1,7 +1,7 @@
 -- mod-version:3 -- lite-xl 2.1
 
 
---[[ 
+--[[
 # Debugger Plugin
 
 The debugger plugin is architected as follows:
@@ -122,7 +122,7 @@ local debugger = {
   drawer_visible = nil,
   state = nil,
   instruction = nil,
-  
+
 }
 
 if not style.debugger then style.debugger = {} end
@@ -135,7 +135,7 @@ config.plugins.debugger = common.merge({
   drawer_size = 100,
   hover_time_watch = 1,
   hover_symbol_pattern_backward = "[^%s+-%(%)%*/;,]+",
-  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+",
+  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+"
 }, config.plugins.debugger)
 
 local function jump_to_file(file, line)
@@ -155,7 +155,7 @@ function debugger:set_instruction(path, line)
 end
 
 function debugger:refresh()
-  model:instruction(function(path, line, func) 
+  model:instruction(function(path, line, func)
     self:set_instruction(path, line)
   end)
   if self:should_show_drawer() then
@@ -217,7 +217,7 @@ end
 
 function DocView:update()
   docview_update(self)
-  if model.state == "stopped" and not self.watch_calulating and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and not self.watch_hover_value and self.last_moved_time and 
+  if model.state == "stopped" and not self.watch_calulating and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and not self.watch_hover_value and self.last_moved_time and
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
@@ -266,18 +266,18 @@ end
 function DebuggerWatchVariableDoc:text_input(text, idx)
   local line, col = self:get_selection()
   local newline = text:find("\n")
-  if newline then 
+  if newline then
     if line == #self.lines and newline == 1 and #self.lines[line] == 1 then
       debugger.watch_result_view:refresh(line)
       core.set_active_view(core.root_view)
       return
     else
-      text = text:sub(1, newline) 
+      text = text:sub(1, newline)
     end
   end
   DebuggerWatchVariableDoc.super.text_input(self, text, idx)
   if newline then
-    if self.lines[line] == "\n" then 
+    if self.lines[line] == "\n" then
       if line < #self.lines then
         core.set_active_view(core.root_view)
         if line > 1 then
@@ -533,18 +533,22 @@ debugger.stack_view = DebuggerStackView()
 debugger.watch_variable_view = DebuggerWatchVariableView()
 debugger.watch_result_view = DebuggerWatchResultView()
 
-local node = core.root_view:get_active_node()
-debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
-debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
-debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+core.add_thread(function()
+  local node = core.root_view:get_active_node()
+  debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
+  debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
+  debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+end)
 
 local item = core.status_view:add_item({
-  predicate = function() return config.target_binary end,
+  predicate = function() return config.target_binary or model.state ~= "inactive" end,
   name = "debugger:status",
   alignment = StatusView.Item.RIGHT,
   command = function()
-    if model.state == "inactive" or model.state == "stopped" then
-      command.perform("debugger:start-or-continue")
+    if model.state == "inactive"
+      command.perform("debugger:start")
+    elseif model.state == "stopped" then
+      command.perform("debugger:continue")
     elseif model.state == "running" then
       command.perform("debugger:halt")
     end
@@ -563,19 +567,29 @@ item.on_draw = function(x, y, h, calc_only)
 end
 
 command.add(function()
-  return config.target_binary and system.get_file_info(config.target_binary) and (model.state == "stopped" or model.state == "inactive")
+  return model.state == "stopped"
 end, {
-  ["debugger:start-or-continue"] = function()
-    if model.state == "stopped" then
-      model:continue()
-    elseif config.target_binary then
-      debugger.last_start_time = system.get_time()
-      model:start(config.target_binary, config.target_binary_arguments, function()
-        debugger:paused()
-      end, function() 
-        debugger:exited()
-      end)
-    end
+  ["debugger:continue"] = function()
+    model:continue()
+  end
+})
+command.add(function()
+  return model.state == "running"
+end, {
+  ["debugger:halt"] = function()
+    model:halt()
+  end
+})
+command.add(function()
+  return config.target_binary and system.get_file_info(config.target_binary) and model.state == "inactive"
+end, {
+  ["debugger:start"] = function()
+    debugger.last_start_time = system.get_time()
+    model:start(config.target_binary, config.target_binary_arguments, function()
+      debugger:paused()
+    end, function()
+      debugger:exited()
+    end)
   end
 })
 
@@ -604,11 +618,6 @@ end, {
   ["debugger:terminate"] = function() model:terminate() end
 })
 
-command.add(function()
-  return model.state == "running"
-end, {
-  ["debugger:halt"] = function() model:halt() end,
-})
 
 command.add(function()
   return model.state == "stopped"
@@ -618,19 +627,75 @@ end, {
   ["debugger:step-out"] =  function() model:step_out() end,
 })
 
-keymap.add { 
+keymap.add {
   ["f7"]                 = "debugger:step-over",
   ["shift+f7"]           = "debugger:step-into",
   ["ctrl+f7"]            = "debugger:step-out",
-  ["f8"]                 = "debugger:start-or-continue", 
-  ["ctrl+f8"]            = "debugger:halt",
+  ["f8"]                 = { "debugger:start", "debugger:continue", "debugger:halt" },
   ["shift+f8"]           = "debugger:terminate",
   ["f9"]                 = "debugger:toggle-breakpoint",
   ["f12"]                = "debugger:toggle-drawer",
 }
 
+-- So that we can attach to terminal.
+local status, terminal = pcall(require, "plugins.terminal")
+if status then
+  local TerminalView = terminal and terminal.class
+  command.add(function()
+    return terminal and model.state == "inactive" and core.active_view and core.active_view:is(TerminalView)
+  end, {
+    ["debugger:attach"] = function()
+      local attached_view = core.active_view
+      debugger.last_start_time = system.get_time()
 
-local has_build, build = core.try(require, 'plugins.build')
+      local proc = {
+        buffer = "",
+        view = core.active_view,
+        read_stdout = function(self)
+          local a = self.buffer
+          self.buffer = ""
+          return a
+        end,
+        interrupt = function(self) self.view.terminal:input("\x03") end,
+        terminate = function(self) self.view.terminal:input("\x03quit\n") end,
+        write = function(self, chunk)
+          self.view.terminal:input(chunk)
+          return #chunk;
+        end
+      }
+
+      local old_update = core.active_view.terminal.update
+      core.active_view.terminal.old_update = core.active_view.terminal.update
+      core.active_view.terminal.update = function(self)
+        return old_update(self, function(chunk)
+          proc.buffer = proc.buffer .. chunk
+        end)
+      end
+      model:attach(proc, model.backends.gdb, function()
+        debugger:paused()
+      end, function()
+        debugger:exited()
+      end)
+    end,
+    ["debugger:insert-run"] = function()
+      core.active_view.terminal:input("gdb -q -nx --interpreter=mi3 --args ")
+    end
+  })
+  command.add(function()
+    return terminal and model.state ~= "inactive" and core.active_view and core.active_view:is(TerminalView)
+  end, {
+    ["debugger:detach"] = function()
+      model:terminate()
+      core.active_view.terminal.update = core.active_view.terminal.old_update
+    end
+  })
+  keymap.add {
+    ["ctrl+shift+f8"]      = { "debugger:attach", "debugger:detach" },
+    ["ctrl+shift+d"]       = "debugger:insert-run"
+  }
+end
+
+local has_build, build = pcall(require, 'plugins.build')
 if has_build then
   -- overwrite the build plugins' "play" toolbar button to activate the debugger, if this is a debug build.
   build.build_bar_view.toolbar_commands[2] = { symbol = '"', command = "debugger:start-or-continue"}

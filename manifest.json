@@ -21,7 +21,8 @@
       "build": {},
       "debugger": {},
       "lsp_c": {},
-      "scm": {}
+      "scm": {},
+      "terminal": {}
     }
   }]
 }

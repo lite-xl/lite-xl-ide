@@ -56,6 +56,7 @@ The debugger plugin acts as a front-end to `gdb`.
 * Allow to run debugged program with shell-like argument list.
 * Allows watching variables by adding them to a watchlist.
 * Allow clicking on the debugger status to change it (running -> break, inactive -> start, stopped -> continue).
+* Allows binding the debugger plugin to `terminal`, allowing it to automatically parse and emit input to the debugger in a particular terminal.
 
 #### TODO
 

@@ -12,7 +12,11 @@ local gdb = {
   debugger_completed = nil
 }
 
-local function gdb_parse_string(str) 
+local function chomp(str)
+  return str:gsub("[\n\r]+$", "")
+end
+
+local function gdb_parse_string(str)
   local offset = 0
   while offset ~= nil do
     offset = str:find('"', offset+1)
@@ -77,6 +81,7 @@ gdb_parse_status_attributes = function(attributes)
 end
 
 local function gdb_parse_status_line(line)
+  line = chomp(line)
   local idx = line:find(",")
   local type = line:sub(1, 1)
   if idx and type == "*" or type == "=" then
@@ -127,7 +132,7 @@ function gdb:remove_breakpoint(path, line)
 end
 
 
-function gdb:print(expr, on_finish) 
+function gdb:print(expr, on_finish)
   self:cmd("p " .. expr, function(t, category, result)
     if result and type(result) == "table" then
       local equals = result[1] and result[1]:find("=")
@@ -137,7 +142,7 @@ function gdb:print(expr, on_finish)
         on_finish(result[1])
       end
     else
-        on_finish(result)    
+        on_finish(result)
     end
   end)
 end
@@ -168,8 +173,11 @@ function gdb:stacktrace(on_finish)
 end
 
 function gdb:instruction(on_finish)
-  on_finish(table.unpack(self.stack_frame))
+  if self.stack_frame then
+    on_finish(table.unpack(self.stack_frame))
+  end
 end
+
 
 function gdb:loop()
   local result = self.running_program and self.running_program:read_stdout()
@@ -179,7 +187,8 @@ function gdb:loop()
     while #self.saved_result > 0 do
       local newline = self.saved_result:find("\n")
       if not newline then break end
-      local type, category, attributes = gdb_parse_status_line(self.saved_result:sub(1, newline-1))
+      local line = self.saved_result:sub(1, newline-1)
+      local type, category, attributes = gdb_parse_status_line(line)
       self.saved_result = self.saved_result:sub(newline + 1)
       if type == "*" then
         if category == "stopped" then
@@ -209,9 +218,9 @@ function gdb:loop()
       elseif type == "^" then
         if (category == "done" or category == "error") and self.waiting_on_result then
           self.waiting_on_result(type, category, category == "error" and attributes["msg"] or self.accumulator)
+          self.waiting_on_result = nil
+          self.accumulator = {}
         end
-        self.waiting_on_result = nil
-        self.accumulator = {}
       elseif type == "~" then
         table.insert(self.accumulator, category)
       elseif type == "=" and self.waiting_on_result then
@@ -233,22 +242,37 @@ function gdb:loop()
   return true
 end
 
-function gdb:start(program, arguments, started, stopped, completed)
-  self.debugger_started = started
-  self.debugger_stopped = stopped
-  self.debugger_completed = completed
-  self.running_thread = core.add_thread(function()
-    self.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments) })
-    self.waiting_on_result = function(type, category, attributes)
-      self:cmd("set filename-display absolute")
-      self:cmd("start")
+local function start(gdb, program_or_terminal, arguments, started, stopped, completed)
+  gdb.debugger_started = started
+  gdb.debugger_stopped = stopped
+  gdb.debugger_completed = completed
+  gdb.running_thread = core.add_thread(function()
+    if type(program_or_terminal) == "string" then
+      gdb.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments) })
+      gdb.waiting_on_result = function(type, category, attributes)
+        gdb:cmd("set filename-display absolute")
+        gdb:cmd("start")
+      end
+    else
+      gdb.running_program = program_or_terminal
+      gdb:cmd("set filename-display absolute")
+      gdb:cmd("start")
     end
-    self.saved_result = ""
-    self.accumulator = {}
-    while self:loop() do end
-    self.running_program = nil
-    self.running_thread = nil
+    gdb.saved_result = ""
+    gdb.accumulator = {}
+    while gdb:loop() do end
+    gdb.running_program = nil
+    gdb.running_thread = nil
   end)
+end
+
+function gdb:start(program, arguments, started, stopped, completed)
+  return start(self, program, arguments, started, stopped, completed)
+end
+
+
+function gdb:attach(terminal, started, stopped, completed)
+  start(self, terminal, nil, started, stopped, completed)
 end
 
 return gdb
