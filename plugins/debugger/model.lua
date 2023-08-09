@@ -13,7 +13,8 @@ local StatusView = require "core.statusview"
 local model = {
   breakpoints = {},
   backends = {
-    gdb = require "plugins.debugger.gdb"
+    gdb = require "plugins.debugger.gdb",
+    dap = require "plugins.debugger.dap"
   },
   state = "inactive",
   active = nil
@@ -62,7 +63,7 @@ function model:started()
   if self.state ~= "starting" then error("can only started from starting state, not while " .. self.state) end
   self.state = "stopped"
   for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:add_breakpoint(path, line) end end end
-  self:continue()
+  self.state = "running"
 end
 
 function model:continue()

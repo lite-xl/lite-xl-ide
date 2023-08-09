@@ -179,7 +179,7 @@ function debugger:should_show_drawer()
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
-  if self.hovering_gutter and (model.state == "stopped" or model.state == "inactive") then
+  if self.hovering_gutter then
     local minline, maxline = core.active_view:get_visible_line_range()
     local _, docy = core.active_view:get_line_screen_position(minline)
     local line = minline + math.floor((y - docy) / self:get_line_height())
@@ -545,7 +545,7 @@ local item = core.status_view:add_item({
   name = "debugger:status",
   alignment = StatusView.Item.RIGHT,
   command = function()
-    if model.state == "inactive"
+    if model.state == "inactive" then
       command.perform("debugger:start")
     elseif model.state == "stopped" then
       command.perform("debugger:continue")
@@ -594,7 +594,7 @@ end, {
 })
 
 command.add(function()
-  return core.active_view and core.active_view.doc and (model.state == "stopped" or model.state == "inactive")
+  return core.active_view and core.active_view.doc
 end, {
   ["debugger:toggle-breakpoint"] = function()
     local line1, col1, line2, col2, swap = core.active_view.doc:get_selection(true)

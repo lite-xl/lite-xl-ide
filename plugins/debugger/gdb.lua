@@ -196,6 +196,7 @@ function gdb:loop()
             self.debugger_completed()
           elseif attributes.frame and attributes.bkptno == "1" then
             self.debugger_started()
+            self:continue()
           elseif attributes.reason == "end-stepping-range" and attributes.frame and attributes.frame.file and attributes.frame.line then
             self.stack_frame = {
               attributes.frame.file,
