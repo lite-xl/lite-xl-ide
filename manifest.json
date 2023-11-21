@@ -9,8 +9,11 @@
     "id": "debugger",
     "version": "0.1",
     "mod_version": "3",
-    "description": "Allows you to debug projects with `gdb`.",
-    "path": "plugins/debugger"
+    "description": "Allows you to debug projects with `gdb`, and DAP debuggers.",
+    "path": "plugins/debugger",
+    "dependencies": {
+      "json": {}
+    }
   }, {
     "id": "ide",
     "version": "0.1",
