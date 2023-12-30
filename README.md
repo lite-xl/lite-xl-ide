@@ -4,7 +4,7 @@
 
 [`lite-xl`](https://github.com/lite-xl/lite-xl) is a light-weight extensible text editor.
 
-`lite-xl-ide` aims to be a suite a plugins for `lite-xl` that can turn it into a high-performance C/C++ IDE with minimal fuss.
+`lite-xl-ide` aims to be a suite of plugins for `lite-xl` that can turn it into a high-performance C/C++ IDE with minimal fuss.
 
 Please note, `lite-xl-ide` is still **experimental**; it is not ready for release. Use at your own risk.
 
