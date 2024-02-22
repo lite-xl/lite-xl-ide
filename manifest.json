@@ -34,7 +34,6 @@
     "description": "A metapackage that turns Lite XL into an IDE for Lua.",
     "path": "plugins/ide.lua",
     "dependencies": {
-      "language_lua": {},
       "lsp_lua": {},
       "scm": {},
       "terminal": {}
