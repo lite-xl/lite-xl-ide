@@ -15,15 +15,64 @@
       "json": {}
     }
   }, {
-    "id": "ide",
+    "id": "ide_c",
     "version": "0.1",
     "mod_version": "3",
-    "description": "A metapackage that turns lite into an IDE.",
+    "description": "A metapackage that turns Lite XL into an IDE for C/C++.",
     "path": "plugins/ide.lua",
     "dependencies": {
       "build": {},
       "debugger": {},
       "lsp_c": {},
+      "scm": {},
+      "terminal": {}
+    }
+  }, {
+    "id": "ide_lua",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Lua.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "language_lua": {},
+      "lsp_lua": {},
+      "scm": {},
+      "terminal": {}
+    }
+  }, {
+    "id": "ide_rust",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Rust.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "language_rust": {},
+      "lsp_rust": {},
+      "build": {},
+      "scm": {},
+      "terminal": {}
+    }
+  }, {
+    "id": "ide_tex",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for TeX.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "language_tex": {},
+      "lsp_tex": {},
+      "scm": {},
+      "terminal": {}
+    }
+  }, {
+    "id": "ide_zig",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Zig.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "language_zig": {},
+      "lsp_zig": {},
       "scm": {},
       "terminal": {}
     }
