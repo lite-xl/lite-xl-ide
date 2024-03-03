@@ -28,7 +28,7 @@
       "terminal": {}
     }
   }],
-  "repos": [
+  "remotes": [
     "https://github.com/adamharrison/lite-xl-lsp-servers:master"
   ]
 }
