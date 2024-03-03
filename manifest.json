@@ -27,5 +27,8 @@
       "scm": {},
       "terminal": {}
     }
-  }]
+  }],
+  "repos": [
+    "https://github.com/adamharrison/lite-xl-lsp-servers:master"
+  ]
 }
