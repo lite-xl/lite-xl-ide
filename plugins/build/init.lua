@@ -37,6 +37,23 @@ local build = common.merge({
 }, config.plugins.build)
 
 
+local state = { previous_arguments = {}, target = 1 }
+local save_state = function() end
+if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir, USERDIR .. PATHSEP .. "build") then
+  local filename = USERDIR .. PATHSEP .. "build" .. PATHSEP .. system.absolute_path("."):gsub("[\\/]", "-")
+  if system.get_file_info(filename) then
+    local state_func, err = loadfile(filename)
+    if state_func then
+      state = state_func()
+    else
+      core.error("error loading state file for build: %s", err)
+    end
+  end
+  save_state = function()
+    io.open(filename, "wb"):write("return " .. common.serialize(state)):flush()
+  end
+end
+
 local function get_plugin_directory()
   local paths = {
     USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
@@ -149,6 +166,7 @@ function build.run_tasks(tasks, on_done, on_line)
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
                   task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}) })
+                  print(table.concat(task.cmd, " "))
                   build.message_view:add_message(table.concat(task.cmd, " "))
                   total_running = total_running + 1
                 end
@@ -171,6 +189,8 @@ function build.output(line) core.log(line) end
 function build.set_target(target)
   build.current_target = target
   config.target_binary = build.targets[target].binary
+  state.target = target
+  save_state()
 end
 
 function build.set_targets(targets, type)
@@ -202,7 +222,17 @@ function build.build(callback)
   if not status then build.message_view:add_message({ "error", err }) end
 end
 
-function build.run()
+function build.escape_arguments(arguments)
+  local new_arguments = arguments
+  if type(arguments) == "table" then
+    for i,arg in ipairs(arguments) do
+      table.insert(new_arguments, "'" .. arg:gsub("'", "'\"'\"'"):gsub("\\", "\\\\") .. "'")
+    end
+  end
+  return new_arguments
+end
+
+function build.run(arguments)
   if build.is_running() then return false end
   build.message_view:clear_messages()
   local target = build.current_target
@@ -210,10 +240,12 @@ function build.run()
   if type(command) == "function" then
     command = command(build.targets[target])
   elseif type(command) == "string" then
+    local arguments = arguments or config.target_binary_arguments or {}
+    local argument_string = type(arguments) == "string" and arguments or ("'" .. table.concat(build.escape_arguments(arguments), "' '") .. "'")
     if PLATFORM == "Windows" then
-      command = { build.shell, command, table.unpack(config.target_binary_arguments or {}) }
+      command = { build.shell, command, table.unpack(arguments) }
     else
-      command = { build.terminal, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. table.concat(config.target_binary_arguments or {}, " ") .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
     end
   end
   if PLATFORM == "Windows" then
@@ -595,7 +627,7 @@ end, {
 command.add(function()
   return config.target_binary and system.get_file_info(config.target_binary)
 end, {
-  ["build:run-or-term-or-kill"] = function()
+  ["build:run-or-term-or-kill"] = function(arguments)
     if build.is_running() then
       if tried_term then
         build.kill()
@@ -605,8 +637,29 @@ end, {
       end
     else
       tried_term = false
-      build.run()
+      build.run(arguments)
     end
+  end,
+  ["build:run-or-term-or-kill-with-arguments"] = function(arguments)
+    core.command_view:enter(config.target_binary .. " ", {
+      submit = function(text)
+        command.perform("build:run-or-term-or-kill", text)
+        local has = false
+        for i,v in ipairs(state.previous_arguments) do
+          if v == text then
+            has = i
+          end
+        end
+        table.insert(state.previous_arguments, text)
+        if has then table.remove(state.previous_arguments, has) end
+        if #state.previous_arguments > 100 then table.remove(state.previous_arguments, 1) end
+        save_state()
+      end,
+      suggest = function(text)
+        return common.fuzzy_match(state.previous_arguments, text)
+      end,
+      text = #state.previous_arguments > 0 and state.previous_arguments[#state.previous_arguments] or ""
+    })
   end
 })
 
@@ -629,6 +682,7 @@ keymap.add {
   ["ctrl+b"]             = { "build:build", "build:terminate" },
   ["ctrl+alt+b"]         = "build:rebuild",
   ["ctrl+e"]             = "build:run-or-term-or-kill",
+  ["ctrl+shift+e"]       = "build:run-or-term-or-kill-with-arguments",
   ["ctrl+t"]             = "build:next-target",
   ["ctrl+shift+b"]       = "build:clean",
   ["f6"]                 = "build:toggle-drawer",
@@ -647,6 +701,7 @@ core.add_thread(function()
       { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
     })
   end
+  build.set_target(state.target)
 end)
 
 return build
