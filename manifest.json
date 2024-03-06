@@ -23,7 +23,7 @@
     "dependencies": {
       "meta_colors": {},
       "meta_languages": {},
-      "align_carets": {},
+      "align_carets": { "optional": "true" },
       "autoinsert": {},
       "autosave": {},
       "bracketmatch": {},
