@@ -15,17 +15,48 @@
       "json": {}
     }
   }, {
+    "id": "ide",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that provides the minimum functionalities for Lite XL to run as a minimal IDE.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "meta_colors": {},
+      "meta_languages": {},
+      "align_carets": {},
+      "autoinsert": {},
+      "autosave": {},
+      "bracketmatch": {},
+      "colorpreview": {},
+      "extend_selection_line": {},
+      "indentguide": {},
+      "lfautoinsert": {},
+      "lintplus": {},
+      "lsp": {},
+      "lsp_snippets": {},
+      "minimap": {},
+      "opacity": { "optional": "true" },
+      "rainbowparen": { "optional": "true" },
+      "scalestatus": { "optional": "true" },
+      "selectionhighlight": {},
+      "snippets": {},
+      "sticky_scroll": { "optional": "true" },
+      "todotreeview": { "optional": "true" },
+      "scm": {},
+      "gitblame": { "optional": "true" },
+      "terminal": {}
+    }
+  }, {
     "id": "ide_c",
     "version": "0.1",
     "mod_version": "3",
     "description": "A metapackage that turns Lite XL into an IDE for C/C++.",
     "path": "plugins/ide.lua",
     "dependencies": {
+      "ide": {},
       "build": {},
       "debugger": {},
-      "lsp_c": {},
-      "scm": {},
-      "terminal": {}
+      "lsp_c": {}
     }
   }, {
     "id": "ide_lua",
@@ -34,9 +65,18 @@
     "description": "A metapackage that turns Lite XL into an IDE for Lua.",
     "path": "plugins/ide.lua",
     "dependencies": {
-      "lsp_lua": {},
-      "scm": {},
-      "terminal": {}
+      "ide": {},
+      "lsp_lua": {}
+    }
+  }, {
+    "id": "ide_python",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Python.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "ide": {},
+      "lsp_python": {}
     }
   }, {
     "id": "ide_rust",
@@ -45,11 +85,8 @@
     "description": "A metapackage that turns Lite XL into an IDE for Rust.",
     "path": "plugins/ide.lua",
     "dependencies": {
-      "language_rust": {},
-      "lsp_rust": {},
-      "build": {},
-      "scm": {},
-      "terminal": {}
+      "ide": {},
+      "lsp_rust": {}
     }
   }, {
     "id": "ide_tex",
@@ -58,10 +95,8 @@
     "description": "A metapackage that turns Lite XL into an IDE for TeX.",
     "path": "plugins/ide.lua",
     "dependencies": {
-      "language_tex": {},
-      "lsp_tex": {},
-      "scm": {},
-      "terminal": {}
+      "ide": {},
+      "lsp_tex": {}
     }
   }, {
     "id": "ide_zig",
@@ -70,10 +105,8 @@
     "description": "A metapackage that turns Lite XL into an IDE for Zig.",
     "path": "plugins/ide.lua",
     "dependencies": {
-      "language_zig": {},
-      "lsp_zig": {},
-      "scm": {},
-      "terminal": {}
+      "ide": {},
+      "lsp_zig": {}
     }
   }]
 }
