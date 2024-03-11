@@ -59,6 +59,27 @@
       "lsp_c": {}
     }
   }, {
+    "id": "ide_java",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Java.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "ide": {},
+      "lsp_java": {}
+    }
+  }, {
+    "id": "ide_javascript",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Javascript.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "ide": {},
+      "lsp_typescript": {},
+      "lsp_quicklintjs": {}
+    }
+  }, {
     "id": "ide_lua",
     "version": "0.1",
     "mod_version": "3",
@@ -97,6 +118,16 @@
     "dependencies": {
       "ide": {},
       "lsp_tex": {}
+    }
+  }, {
+    "id": "ide_typescript",
+    "version": "0.1",
+    "mod_version": "3",
+    "description": "A metapackage that turns Lite XL into an IDE for Typescript.",
+    "path": "plugins/ide.lua",
+    "dependencies": {
+      "ide": {},
+      "lsp_typescript": {}
     }
   }, {
     "id": "ide_zig",
