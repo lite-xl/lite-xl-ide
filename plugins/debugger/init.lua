@@ -452,8 +452,20 @@ function DebuggerStackView:set_target_size(axis, value)
   end
 end
 
+local c_syntax
 function DebuggerStackView:set_stack(stack)
   self.stack = stack
+  self.stack_tokens = {}
+
+  c_syntax = c_syntax or syntax.get(".c")
+  for i,v in ipairs(stack) do
+    local tokens, state = tokenizer.tokenize(c_syntax, v[2])
+    self.stack_tokens[i] = {}
+    for j, type, text in tokenizer.each_token(tokens) do
+      table.insert(self.stack_tokens[i], { type, text })
+    end
+  end
+
   self.hovered_frame = nil
   self.active_frame = 1
   core.redraw = true
@@ -495,10 +507,8 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
   end
 end
 
-local c_syntax
 
 function DebuggerStackView:draw()
-  c_syntax = c_syntax or syntax.get(".c")
   self:draw_background(style.background3)
   local h = style.code_font:get_height()
   local item_height = self:get_item_height()
@@ -506,16 +516,25 @@ function DebuggerStackView:draw()
   common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h + style.padding.y * 2)
   for i,v in ipairs(self.stack) do
     local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y*2 + h
-    if self.hovered_frame == i or self.active_frame == i then
-      renderer.draw_rect(ox, oy + yoffset - style.padding.y, self.size.x, h + style.padding.y*2, style.line_highlight)
+    local y = oy + yoffset - style.padding.y
+    if y + h + style.padding.y*2 >= self.position.y and y < self.position.y + self.size.y then
+      if self.hovered_frame == i or self.active_frame == i then
+        renderer.draw_rect(ox, y, self.size.x, h + style.padding.y*2, style.line_highlight)
+      end
+      local tx = ox + style.padding.y
+      tx = common.draw_text(style.code_font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, h)
+      tx = common.draw_text(style.code_font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, h)
+      local tokens, state = tokenizer.tokenize(c_syntax, v[2])
+      for _,  token in ipairs(self.stack_tokens[i]) do
+        local type, text = table.unpack(token)
+        if tx < self.position.x + self.size.x then
+          tx = common.draw_text(style.code_font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
+        end
+      end
+      if tx < self.position.x + self.size.x then
+        tx = common.draw_text(style.code_font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
+      end
     end
-    local tx = ox + style.padding.y
-    tx = common.draw_text(style.code_font, style.text, "#" .. i .. " " .. v[1] .. " ", "left", tx, oy + yoffset, 0, h)
-    local tokens, state = tokenizer.tokenize(c_syntax, v[2])
-    for i, type, text in tokenizer.each_token(tokens) do
-      tx = common.draw_text(style.code_font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
-    end
-    tx = common.draw_text(style.code_font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
   end
   self:draw_scrollbar()
 end
@@ -565,6 +584,9 @@ item.on_draw = function(x, y, h, calc_only)
   local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
   return nx - x
 end
+
+
+local has_build, build = pcall(require, 'plugins.build')
 
 command.add(function()
   return model.state == "stopped"
@@ -690,12 +712,11 @@ if status then
     end
   })
   keymap.add {
-    ["ctrl+shift+f8"]      = { "debugger:attach", "debugger:detach" },
+    ["f8"]                 = { "debugger:attach", "debugger:detach" },
     ["ctrl+shift+d"]       = "debugger:insert-run"
   }
 end
 
-local has_build, build = pcall(require, 'plugins.build')
 if has_build then
   -- overwrite the build plugins' "play" toolbar button to activate the debugger, if this is a debug build.
   build.build_bar_view.toolbar_commands[2] = { symbol = '"', command = "debugger:start-or-continue"}

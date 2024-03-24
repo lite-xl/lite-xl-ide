@@ -37,20 +37,35 @@ local build = common.merge({
 }, config.plugins.build)
 
 
-local state = { previous_arguments = {}, target = 1 }
+local function split(splitter, str)
+  local o = 1
+  local res = {}
+  while true do
+      local s, e = str:find(splitter, o)
+      table.insert(res, str:sub(o, s and (s - 1) or #str))
+      if not s then break end
+      o = e + 1
+  end
+  return res
+end
+
+build.state = { previous_arguments = {}, target = 1 }
 local save_state = function() end
 if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir, USERDIR .. PATHSEP .. "build") then
   local filename = USERDIR .. PATHSEP .. "build" .. PATHSEP .. system.absolute_path("."):gsub("[\\/]", "-")
   if system.get_file_info(filename) then
     local state_func, err = loadfile(filename)
     if state_func then
-      state = state_func()
+      build.state = state_func()
+      core.add_thread(function()
+        config.target_binary_arguments = build.split_argument_string(build.state.previous_arguments[#build.state.previous_arguments])
+      end)
     else
       core.error("error loading state file for build: %s", err)
     end
   end
   save_state = function()
-    io.open(filename, "wb"):write("return " .. common.serialize(state)):flush()
+    io.open(filename, "wb"):write("return " .. common.serialize(build.state)):flush()
   end
 end
 
@@ -189,7 +204,7 @@ function build.set_target(target)
   target = common.clamp(target, 1, #build.targets)
   build.current_target = target
   config.target_binary = build.targets[target].binary
-  state.target = target
+  build.state.target = target
   save_state()
 end
 
@@ -223,18 +238,26 @@ function build.build(callback)
 end
 
 function build.escape_arguments(arguments)
-  local new_arguments = arguments
   if type(arguments) == "table" then
+    local new_arguments = {}
     for i,arg in ipairs(arguments) do
       table.insert(new_arguments, "'" .. arg:gsub("'", "'\"'\"'"):gsub("\\", "\\\\") .. "'")
     end
+    return new_arguments
   end
-  return new_arguments
+  return arguments
 end
 
-function build.run(arguments)
-  if build.is_running() then return false end
-  build.message_view:clear_messages()
+local c_syntax
+function build.split_argument_string(arguments)
+  if type(arguments) == "string" then
+    -- Bad, but fine for now. Should probably use a tokenizer to properly get the strings into their appropriate arguments.
+    return split(" ", arguments)
+  end
+  return arguments
+end
+
+function build.get_command(arguments)
   local target = build.current_target
   local command = build.targets[target].run or config.target_binary
   if type(command) == "function" then
@@ -248,6 +271,13 @@ function build.run(arguments)
       command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
     end
   end
+  return command
+end
+
+function build.run(arguments)
+  if build.is_running() then return false end
+  build.message_view:clear_messages()
+  local command = build.get_command(arguments)
   if PLATFORM == "Windows" then
     os.execute(table.concat(command, " "))
   else
@@ -594,6 +624,11 @@ command.add(function()
   return not build.is_running()
 end, {
   ["build:build"] = function()
+    for i,v in ipairs(core.docs) do
+      if v:is_dirty() and v.filename and v.abs_filename then
+        v:save()
+      end
+    end
     if #build.targets > 0 then
       build.build()
     end
@@ -643,22 +678,23 @@ end, {
   ["build:run-or-term-or-kill-with-arguments"] = function(arguments)
     core.command_view:enter(config.target_binary .. " ", {
       submit = function(text)
+        config.target_binary_arguments = build.split_argument_string(text)
         command.perform("build:run-or-term-or-kill", text)
         local has = false
-        for i,v in ipairs(state.previous_arguments) do
+        for i,v in ipairs(build.state.previous_arguments) do
           if v == text then
             has = i
           end
         end
-        table.insert(state.previous_arguments, text)
-        if has then table.remove(state.previous_arguments, has) end
-        if #state.previous_arguments > 100 then table.remove(state.previous_arguments, 1) end
+        table.insert(build.state.previous_arguments, text)
+        if has then table.remove(build.state.previous_arguments, has) end
+        if #build.state.previous_arguments > 100 then table.remove(build.state.previous_arguments, 1) end
         save_state()
       end,
       suggest = function(text)
-        return common.fuzzy_match(state.previous_arguments, text)
+        return common.fuzzy_match(build.state.previous_arguments, text)
       end,
-      text = #state.previous_arguments > 0 and state.previous_arguments[#state.previous_arguments] or ""
+      text = #build.state.previous_arguments > 0 and build.state.previous_arguments[#build.state.previous_arguments] or ""
     })
   end
 })
@@ -701,7 +737,7 @@ core.add_thread(function()
       { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
     })
   end
-  build.set_target(state.target)
+  build.set_target(build.state.target)
 end)
 
 return build

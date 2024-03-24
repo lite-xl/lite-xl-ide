@@ -249,7 +249,7 @@ local function start(gdb, program_or_terminal, arguments, started, stopped, comp
   gdb.debugger_completed = completed
   gdb.running_thread = core.add_thread(function()
     if type(program_or_terminal) == "string" then
-      gdb.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program, table.unpack(arguments) })
+      gdb.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program_or_terminal, table.unpack(arguments) })
       gdb.waiting_on_result = function(type, category, attributes)
         gdb:cmd("set filename-display absolute")
         gdb:cmd("start")
