@@ -1,6 +1,6 @@
 # lite-xl IDE
 
-![lite-xl IDE with Debugger Open](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/debugger.png)
+![lite-xl IDE with Debugger Open](https://raw.githubusercontent.com/lite-xl/lite-xl-ide/main/screenshots/debugger.png)
 
 [`lite-xl`](https://github.com/lite-xl/lite-xl) is a light-weight extensible text editor.
 
@@ -13,20 +13,20 @@ Please note, `lite-xl-ide` is still **experimental**; it is not ready for releas
 To install, you can use [`lpm`](https://github.com/lite-xl/lite-xl-plugin-manager):
 
 ```bash
-lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm install ide --no-install-optional
+lpm add https://github.com/lite-xl/lite-xl-ide.git && lpm install ide --no-install-optional
 ```
 
 If you want to just try it out, you can always use `run` to try it in a new lite bottle:
 
 ```bash
-lpm run https://github.com/adamharrison/lite-xl-ide.git:main ide --no-install-optional
+lpm run https://github.com/lite-xl/lite-xl-ide.git:main ide --no-install-optional
 ```
 
 Alternatively, if you don't have `lpm`, or don't want it, you can always pull the repository manually with `git`
 and simply copy the entire set of plugins into lite's plugin directory.
 
 ```bash
-git clone https://github.com/adamharrison/lite-xl-ide.git && cp -R lite-xl-ide/plugins ~/.config/lite-xl-/plugins
+git clone https://github.com/lite-xl/lite-xl-ide.git && cp -R lite-xl-ide/plugins ~/.config/lite-xl-/plugins
 ```
 
 ## Plugins
