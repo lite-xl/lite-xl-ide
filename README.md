@@ -10,7 +10,7 @@ Please note, `lite-xl-ide` is still **experimental**; it is not ready for releas
 
 ## Quickstart
 
-To install, you can use [`lpm`](https://github.com/adamharrison/lite-xl-plugin-manager):
+To install, you can use [`lpm`](https://github.com/lite-xl/lite-xl-plugin-manager):
 
 ```bash
 lpm add https://github.com/adamharrison/lite-xl-ide.git && lpm install ide --no-install-optional
