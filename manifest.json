@@ -23,7 +23,7 @@
     "dependencies": {
       "meta_colors": {},
       "meta_languages": {},
-      "align_carets": { "optional": "true" },
+      "align_carets": { "optional": true },
       "autoinsert": {},
       "autosave": {},
       "bracketmatch": {},
@@ -35,15 +35,15 @@
       "lsp": {},
       "lsp_snippets": {},
       "minimap": {},
-      "opacity": { "optional": "true" },
-      "rainbowparen": { "optional": "true" },
-      "scalestatus": { "optional": "true" },
+      "opacity": { "optional": true },
+      "rainbowparen": { "optional": true },
+      "scalestatus": { "optional": true },
       "selectionhighlight": {},
       "snippets": {},
-      "sticky_scroll": { "optional": "true" },
-      "todotreeview": { "optional": "true" },
+      "sticky_scroll": { "optional": true },
+      "todotreeview": { "optional": true },
       "scm": {},
-      "gitblame": { "optional": "true" },
+      "gitblame": { "optional": true },
       "terminal": {}
     }
   }, {
