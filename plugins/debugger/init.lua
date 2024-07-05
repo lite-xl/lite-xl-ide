@@ -190,7 +190,7 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
     end
     return true
   end
-  return docview_on_mouse_pressed(button, x, y, clicks)
+  return docview_on_mouse_pressed(self, button, x, y, clicks)
 end
 
 function DocView:on_mouse_moved(x, y, ...)
