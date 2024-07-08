@@ -21,7 +21,8 @@ local internal = common.merge({
   threads = build.threads,
   running_programs = nil,
   remaining_programs = {},
-  interval = 0.1
+  interval = 0.1,
+  priority = 10
 }, config.plugins.build.internal)
 
 local function split(str, splitter)
@@ -50,7 +51,7 @@ local function get_cxxflags(target, path) return get_field(target, path, "cxxfla
 local function get_type(target) return get_field(target, nil, "type") end
 local function get_ldflags(target) return get_field(target, nil, "ldflags") end
 local function get_binary(target) return get_field(target, nil, "binary") end
-local function get_compiler(target, path) 
+local function get_compiler(target, path)
   if not path then return get_field(target, path, "cc") end
   if path:find("^/") ~= 1 then
     if target.srcs then
@@ -80,7 +81,7 @@ local function get_source_files(target)
   for dir_name, file in core.get_project_files() do
     local src = file.filename
     if dir_name == core.project_dir and file.type == "file" then
-      local compiler = get_compiler(target, src) 
+      local compiler = get_compiler(target, src)
       if compiler then table.insert(files, src) end
     end
   end
@@ -96,6 +97,18 @@ end
 local function get_compile_flags(target, file)
   if file:find("%.cpp$") or file:find("%.cc") then return get_field(target, file, "cxxflags") end
   return get_field(target, file, "cflags")
+end
+
+function internal.infer_targets()
+  -- autodetect
+  local srcs = nil
+  if system.get_file_info("src") then
+    srcs = { "src" }
+    return {
+      { name = "debug", binary = common.basename(core.project_dir) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
+      { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
+    }
+  end
 end
 
 function internal.build(target, callback)
@@ -145,7 +158,7 @@ function internal.build(target, callback)
       if compile then
         table.insert(compile_jobs, table_concat(get_compiler(target, files[i]), { "-fdiagnostics-color=always", "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) }))
       end
-    end 
+    end
     build.run_tasks(compile_jobs, function(status)
       if status ~= 0 then if callback then callback(status) end return end
       local link_job = {}

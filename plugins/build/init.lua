@@ -36,6 +36,32 @@ local build = common.merge({
   shell = (PLATFORM == "Windows" and "START /B" or "bash -c")
 }, config.plugins.build)
 
+local function get_plugin_directory()
+  local paths = {
+    USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
+    DATADIR .. PATHSEP .. "plugins" .. PATHSEP .. "build"
+  }
+  for i, v in ipairs(paths) do if system.get_file_info(v) then return v end end
+  return nil
+end
+
+function build.get_backends(specific)
+  local backends = {}
+  for _, backend in ipairs(system.list_dir(get_plugin_directory() .. PATHSEP .. "backends")) do
+    if backend:find("%.lua$") then
+      local module = require("plugins.build.backends." .. backend:gsub("%.lua", ""))
+      table.insert(backends, module)
+      backends[#backends].id = backend:gsub("%.lua", "")
+    end
+  end
+  if specific then
+    for i,backend in ipairs(backends) do
+      if backend.id == specific then return backend end
+    end
+    error("can't find backend " .. specific)
+  end
+  return backends
+end
 
 local function split(splitter, str)
   local o = 1
@@ -69,14 +95,6 @@ if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir,
   end
 end
 
-local function get_plugin_directory()
-  local paths = {
-    USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
-    DATADIR .. PATHSEP .. "plugins" .. PATHSEP .. "build"
-  }
-  for i, v in ipairs(paths) do if system.get_file_info(v) then return v end end
-  return nil
-end
 
 local function jump_to_file(file, line, col)
   if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
@@ -210,7 +228,11 @@ end
 
 function build.set_targets(targets, type)
   build.targets = targets
-  for i,v in ipairs(targets) do v.backend = require("plugins.build." .. (type or "internal")) end
+  if type then
+    for i,v in ipairs(targets) do
+      v.backend = build.get_backends(type)
+    end
+  end
   config.target_binary = build.targets[1].binary
 end
 
@@ -335,7 +357,7 @@ core.status_view:add_item({
   get_item = function()
     local dv = core.active_view
     return {
-      style.text, "target: " .. build.targets[build.current_target].name
+      style.text, string.format("target: %s (%s)", build.targets[build.current_target].name, build.targets[build.current_target].backend.id)
     }
   end,
   command = function()
@@ -488,7 +510,7 @@ function BuildMessageView:draw()
   local default_color = style.text
   for i,v in ipairs(self.messages) do
     local yoffset = style.padding.y * 2 + (i - 1)*item_height + style.padding.y + h
-    if self.hovered_message == i or self.active_message == i then
+    if type(v) == "table" and self.hovered_message == i or self.active_message == i then
       renderer.draw_rect(ox, oy + yoffset - style.padding.y * 0.5, self.size.x, h + style.padding.y, style.line_highlight)
     end
     if type(v) == "table" then
@@ -727,15 +749,18 @@ keymap.add {
 
 core.add_thread(function()
   if config.plugins.build.targets then
-    build.set_targets(config.plugins.build.targets, config.plugins.build.type)
+    build.set_targets(config.plugins.build.targets, config.plugins.build.type or "internal")
   else
-    -- autodetect
-    local srcs = nil
-    if system.get_file_info("src") then srcs = { "src" } end
-    build.set_targets({
-      { name = "debug", binary = common.basename(core.project_dir) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
-      { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
-    })
+    local backends = build.get_backends()
+    table.sort(backends, function(a,b) return (a.priority or 0) < (b.priority or 0) end)
+    local targets = {}
+    for _, backend in ipairs(backends) do
+      for _, target in ipairs(backend.infer and backend.infer() or {}) do
+        target.backend = backend
+        table.insert(targets, target)
+      end
+    end
+    build.set_targets(targets)
   end
   build.set_target(build.state.target)
 end)
