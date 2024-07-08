@@ -6,21 +6,21 @@ The build plugin works on a set of *targets*, that are either specified by a com
 
 Targets are the basis of the build plugin. Different build systems can co-exist simultaneously. By default, there are only three fields in a target:
 
-`name`: The identifier of the target.
-`binary`: The path to the primary executable.
-`backend`: Either the backend itself, or the name of a registered backend.
+* `name`: The identifier of the target.
+* `binary`: The path to the primary executable.
+* `backend`: Either the backend itself, or the name of a registered backend.
 
 ### Backends
 
 Backends **should** supply the following methods:
 
-`build(target, callback)`: Builds the specified target.
-`clean(target, callback)`: Cleans the specified target.
+* `build(target, callback)`: Builds the specified target.
+* `clean(target, callback)`: Cleans the specified target.
 
 Backends **can** supply the following methods:
 
-`infer()`: Called in a coroutine; returns the list of targets that this backend supports for this project.
-`priority`: The order in which `infer` is called, so build systems can act as fallbacks. Default 0, sorting ascending.
+* `infer()`: Called in a coroutine; returns the list of targets that this backend supports for this project.
+* `priority`: The order in which `infer` is called, so build systems can act as fallbacks. Default 0, sorting ascending.
 
 #### make
 
