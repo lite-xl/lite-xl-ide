@@ -4,7 +4,10 @@
     "version": "0.1",
     "mod_version": "3",
     "description": "Provides a build system, messages window, and easily clickable errors. Supports an internal build system, and `make`. *([screenshot](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/build.png))*",
-    "path": "plugins/build"
+    "path": "plugins/build",
+    "dependencies": {
+      "json": {}
+    }
   }, {
     "id": "debugger",
     "version": "0.1",
