@@ -7,10 +7,7 @@ local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i)
 
 
 function make.infer()
-  if system.get_file_info("Makefile") then
-    return { name = "all" }
-  end
-  return {}
+  return system.get_file_info("Makefile") and { name = "all" }
 end
 
 function make.build(target, callback)

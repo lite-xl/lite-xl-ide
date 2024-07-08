@@ -4,13 +4,10 @@ local build = require "plugins.build"
 local shell = { }
 
 function shell.infer()
-  if system.get_file_info("build.sh") then
-    return {
-      { name = "debug", arguments = { "-g" } },
-      { name = "release" }
-    }
-  end
-  return {}
+  return system.get_file_info("build.sh") and {
+    { name = "debug", arguments = { "-g" } },
+    { name = "release" }
+  }
 end
 
 local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i) then table.insert(nt, v) end end return nt end

@@ -15,13 +15,10 @@ local function get_build_directory(target)
 end
 
 function meson.infer()
-  if system.get_file_info("meson.build") then
-    return {
-      { name = "debug" },
-      { name = "release", buildtype = "release" }
-    }
-  end
-  return {}
+  return system.get_file_info("meson.build") and {
+    { name = "debug" },
+    { name = "release", buildtype = "release" }
+  }
 end
 
 function meson.parse_compile_line(line)
