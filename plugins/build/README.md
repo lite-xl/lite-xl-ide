@@ -9,6 +9,8 @@ Targets are the basis of the build plugin. Different build systems can co-exist 
 * `name`: The identifier of the target.
 * `binary`: The path to the primary executable.
 * `backend`: Either the backend itself, or the name of a registered backend.
+* `wd`: The working directory to run the `binary` in when executed.
+* `run`: The command necessary to execute this target. If blank, will execute `binary`.
 
 ### Backends
 
@@ -28,7 +30,7 @@ The `make` backend engages with `Makefile`s. If a `Makefile` exists, by default,
 
 #### shell
 
-The `shell` backend engages with a file called `build.sh`. If a `build.sh` file exists, by default the backend will infer a `debug` target, which will call the `build.sh` file with `-g`, and a `release` target, which will call the build.sh file with no arguemnts.
+The `shell` backend engages with a file called `build.sh`. If a `build.sh` file exists, by default the backend will infer a `debug` target, which will call the `build.sh` file with `-g`, and a `release` target, which will call the build.sh file with no arguments.
 
 #### meson
 

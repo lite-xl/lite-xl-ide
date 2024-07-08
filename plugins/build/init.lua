@@ -242,13 +242,13 @@ function build.build(callback)
   build.message_view:clear_messages()
   build.message_view.visible = true
   local target = build.current_target
-  build.message_view:add_message("Building " .. (build.targets[target].binary or "target") .. "...")
+  build.message_view:add_message("Building " .. (build.targets[target].binary and common.basename(build.targets[target].binary) or "target") .. "...")
   build.message_view.minimized = false
   local status, err = pcall(function()
     if not build.targets[target] then error("Can't find target " .. target) end
     if not build.targets[target].backend then error("Can't find target " .. target .. " backend.") end
     build.targets[target].backend.build(build.targets[target], function (status)
-      local line = "Completed building " .. (build.targets[target].binary or "target") .. ". " .. status .. " Errors/Warnings."
+      local line = "Completed building " .. (build.targets[target].binary and common.basename(build.targets[target].binary) or "target") .. ". " .. status .. " Errors/Warnings."
       build.message_view:add_message({ status == 0 and "good" or "error", line })
       build.message_view.visible = status ~= 0 or build.on_success ~= "close"
       build.output(line)
@@ -290,7 +290,8 @@ function build.get_command(arguments)
     if PLATFORM == "Windows" then
       command = { build.shell, command, table.unpack(arguments) }
     else
-      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. core.project_dir .. "; ./" .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+      if not common.is_absolute_path(command) then command = "./" .. command end
+      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. (build.targets[target].wd or core.project_dir) .. "; " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
     end
   end
   return command
