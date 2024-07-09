@@ -2,7 +2,7 @@
   "addons": [{
     "id": "build",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "Provides a build system, messages window, and easily clickable errors. Supports an internal build system, and `make`. *([screenshot](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/build.png))*",
     "path": "plugins/build",
     "dependencies": {
@@ -11,7 +11,7 @@
   }, {
     "id": "debugger",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "Provides a debugger integration, with pluggable backends. Currently supports only gdb. *([screenshot](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/debugger.png))*",
     "path": "plugins/debugger",
     "dependencies": {
@@ -20,7 +20,7 @@
   }, {
     "id": "ide",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that provides the minimum functionalities for Lite XL to run as a minimal IDE.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -52,7 +52,7 @@
   }, {
     "id": "ide_c",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for C/C++.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -64,7 +64,7 @@
   }, {
     "id": "ide_java",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Java.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -74,7 +74,7 @@
   }, {
     "id": "ide_javascript",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Javascript.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -85,7 +85,7 @@
   }, {
     "id": "ide_lua",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Lua.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -95,7 +95,7 @@
   }, {
     "id": "ide_python",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Python.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -105,7 +105,7 @@
   }, {
     "id": "ide_rust",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Rust.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -115,7 +115,7 @@
   }, {
     "id": "ide_tex",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for TeX.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -125,7 +125,7 @@
   }, {
     "id": "ide_typescript",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Typescript.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -135,7 +135,7 @@
   }, {
     "id": "ide_zig",
     "version": "0.1",
-    "mod_version": "3",
+    "mod_version": "4",
     "description": "A metapackage that turns Lite XL into an IDE for Zig.",
     "path": "plugins/ide.lua",
     "dependencies": {
@@ -144,6 +144,6 @@
     }
   }],
   "remotes": [
-    "https://github.com/adamharrison/lite-xl-lsp-servers:master"
+    "https://github.com/adamharrison/lite-xl-lsp-servers:3.0"
   ]
 }
