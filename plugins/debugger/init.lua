@@ -1,4 +1,4 @@
--- mod-version:3 -- lite-xl 2.1
+-- mod-version:4 -- lite-xl 3.0
 
 
 --[[
@@ -105,6 +105,7 @@ local style  = require "core.style"
 local config  = require "core.config"
 local tokenizer = require "core.tokenizer"
 local syntax = require "core.syntax"
+local storage = require "core.storage"
 local View = require "core.view"
 local StatusView = require "core.statusview"
 
@@ -122,21 +123,42 @@ local debugger = {
   drawer_visible = nil,
   state = nil,
   instruction = nil,
-
+  last_exited = 0,
+  state = nil
 }
 
 if not style.debugger then style.debugger = {} end
 style.debugger.breakpoint = style.debugger.breakpoint or { common.color "#ca3434" }
 style.debugger.instruction = style.debugger.instruction or { common.color "#3434ca" }
+style.debugger.font = style.code_font:copy(style.code_font:get_height()*0.7)
+
+debugger.state = storage.load("debugger", "state") or { breakpoints = { } }
+for file, lines in pairs(debugger.state.breakpoints) do
+  for line in pairs(lines) do
+    model:add_breakpoint(file, line)
+  end
+end
+function debugger:save()
+  storage.save("debugger", "state", debugger.state)
+end
 
 config.plugins.debugger = common.merge({
   step_refresh_watches = true,
+  hide_drawer_after = 3,
   interval = 0.01,
   drawer_size = 100,
-  hover_time_watch = 1,
-  hover_symbol_pattern_backward = "[^%s+-%(%)%*/;,]+",
-  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+"
+  hover_time_watch = 0.5,
+  hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
+  hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
+  skip_files = { 
+    "/usr/include/*",
+    "/usr/include/*/*",
+    "/usr/include/*/*/*",
+    "/usr/include/*/*/*/*"
+  }
 }, config.plugins.debugger)
+
+for i,v in ipairs(config.plugins.debugger.skip_files) do table.insert(model.skip_files, v) end
 
 local function jump_to_file(file, line)
   -- Check to see if the file is in the project. If it is, open it, and go to the line.
@@ -155,8 +177,16 @@ function debugger:set_instruction(path, line)
 end
 
 function debugger:refresh()
-  model:instruction(function(path, line, func)
-    self:set_instruction(path, line)
+  model:stacktrace(function(frames)
+    local frame = frames[1]
+    for i,v in ipairs(frames) do
+      local func, args, file, line = table.unpack(v)
+      if system.get_file_info(file) then
+        frame = v
+        break
+      end
+    end
+    if frame then self:set_instruction(frame[3], frame[4]) end
   end)
   if self:should_show_drawer() then
     self.stack_view:refresh()
@@ -170,26 +200,17 @@ end
 
 function debugger:exited()
   debugger.instruction = nil
+  debugger.last_exited = system.get_time()
   debugger.stack_view.stack = { }
   if self.drawer_visible then self.drawer_visible = false end
 end
 
 function debugger:should_show_drawer()
-  return self.drawer_visible == true or (self.drawer_visible == nil and model.state ~= "inactive")
+  return self.drawer_visible == true or (self.drawer_visible == nil and model.state ~= "inactive" or (system.get_time() - debugger.last_exited) < (config.plugins.debugger.hide_drawer_after or 0))
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
-  if self.hovering_gutter then
-    local minline, maxline = core.active_view:get_visible_line_range()
-    local _, docy = core.active_view:get_line_screen_position(minline)
-    local line = minline + math.floor((y - docy) / self:get_line_height())
-    if not model:has_breakpoint(self.doc.abs_filename, line) then
-      model:add_breakpoint(self.doc.abs_filename, line)
-    else
-      model:remove_breakpoint(self.doc.abs_filename, line)
-    end
-    return true
-  end
+  if self.hovering_gutter then return command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) end
   return docview_on_mouse_pressed(self, button, x, y, clicks)
 end
 
@@ -202,6 +223,7 @@ function DocView:on_mouse_moved(x, y, ...)
   local _, docy = self:get_line_screen_position(minline)
   if x > self.position.x and x < self.position.x + self:get_gutter_width() then
     self.cursor = "arrow"
+    self.hovering_gutter = minline + math.floor((y - docy) / self:get_line_height())
   end
 end
 
@@ -217,21 +239,23 @@ end
 
 function DocView:update()
   docview_update(self)
-  if model.state == "stopped" and not self.watch_calulating and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and not self.watch_hover_value and self.last_moved_time and
+  if model.state == "stopped" and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and self.watch_token == nil and self.last_moved_time and
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
     local _, s = self.doc.lines[line]:reverse():find(config.plugins.debugger.hover_symbol_pattern_backward, #self.doc.lines[line] - col - 1)
-    if s then
+    if s and not self.doc.lines[line]:sub(col, col):find("[=%s%[%(]") then
       local _, e = self.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
       s, e = #self.doc.lines[line] - s + 1, e or col
       local token = self.doc.lines[line]:sub(s, e):gsub("\n$", "")
-      if #token > 1 and not self.watch_token then
+      if #token > 0 and not self.watch_token then
         model:variable(token, function(result)
           self.watch_hover_value = result
         end)
       end
       self.watch_token = { line, s, e }
+    else
+      self.watch_token = false
     end
   end
 end
@@ -263,77 +287,11 @@ function DebuggerWatchVariableDoc:new()
   DebuggerWatchVariableDoc.super.new(self)
 end
 
-function DebuggerWatchVariableDoc:text_input(text, idx)
-  local line, col = self:get_selection()
-  local newline = text:find("\n")
-  if newline then
-    if line == #self.lines and newline == 1 and #self.lines[line] == 1 then
-      debugger.watch_result_view:refresh(line)
-      core.set_active_view(core.root_view)
-      return
-    else
-      text = text:sub(1, newline)
-    end
-  end
-  DebuggerWatchVariableDoc.super.text_input(self, text, idx)
-  if newline then
-    if self.lines[line] == "\n" then
-      if line < #self.lines then
-        core.set_active_view(core.root_view)
-        if line > 1 then
-          DebuggerWatchVariableDoc.super.remove(self, line-1, #self.lines[line-1], line+1, 1)
-        else
-          DebuggerWatchVariableDoc.super.remove(self, line - 1, 0, line+2, 1)
-        end
-        debugger.watch_result_view:refresh()
-      end
-    else
-      debugger.watch_result_view:refresh(line)
-      core.set_active_view(core.root_view)
-    end
-  end
-end
-
--- function DebuggerWatchVariableDoc:remove(line1, col1, line2, col2)
---   print("DELETE", line1, col1, line2, col2, "K")
---   if line2 == line1 then
---     DebuggerWatchVariableDoc.super.remove(self, line1, col1, line2, col2)
---   end
--- end
-
-function DebuggerWatchVariableDoc:delete_to_cursor(idx, ...)
-  for sidx, line1, col1, line2, col2 in self:get_selections(true, idx) do
-    if line1 == line2 then
-      if col1 ~= col2 then
-        self:remove(line1, col1, line2, col2)
-      end
-      local l2, c2 = self:position_offset(line1, col1, ...)
-      if l2 == line1 then
-        self:remove(line1, col1, l2, c2)
-        if col1 < c2 then
-          line1, col1 = l2, c2
-        end
-        self:set_selections(sidx, line1, col1)
-      end
-    end
-  end
-  self:merge_cursors(idx)
-end
-
-
-function DebuggerWatchVariableDoc:set_selections(idx, line1, col1, line2, col2, swap, rm)
-  if line2 and line2 ~= line1 then
-    line2 = line1
-    col2 = #self.lines[line1] - 1
-  end
-  DebuggerWatchVariableDoc.super.set_selections(self, idx, line1, col1, line2, col2, swap, rm)
-end
-
-
 local DebuggerWatchHalf = DocView:extend()
 function DebuggerWatchHalf:new(title, doc)
   DebuggerWatchHalf.super.new(self, doc)
   self.title = title
+  self.is_debugger_view = true
   self.target_size = config.plugins.debugger.drawer_size
   self.init_size = true
 end
@@ -341,6 +299,9 @@ function DebuggerWatchHalf:try_close(do_close) end
 function DebuggerWatchHalf:get_scrollable_size() return self.size.y end
 function DebuggerWatchHalf:get_gutter_width() return 0 end
 function DebuggerWatchHalf:draw_line_gutter(idx, x, y) end
+function DebuggerWatchHalf:get_font() return style.debugger.font end
+function DebuggerWatchHalf:get_line_height() return style.debugger.font:get_height() + style.padding.y * 2 end
+function DebuggerWatchHalf:draw_background(color) DebuggerWatchHalf.super.draw_background(self, color or style.background3) end
 
 function DebuggerWatchHalf:get_line_screen_position(line, col)
   local x, y = self:get_content_offset()
@@ -373,13 +334,6 @@ function DebuggerWatchHalf:draw_line_body(idx, x, y)
   return DebuggerWatchHalf.super.draw_line_body(self, idx, x, y)
 end
 
-function DebuggerWatchHalf:get_line_height()
-  return style.code_font:get_height() + style.padding.y * 2
-end
-
-function DebuggerWatchHalf:draw_background(color)
-  DebuggerWatchHalf.super.draw_background(self, color or style.background3)
-end
 
 function DebuggerWatchHalf:draw()
   DebuggerWatchHalf.super.draw(self)
@@ -396,21 +350,26 @@ function DebuggerWatchResultView:refresh(idx)
   local lines = debugger.watch_variable_view.doc.lines
   local total_lines = lines[1]:find("%S") and #lines or 0
   if idx then
-    self.doc.lines[idx] = ""
+    self.doc.lines[idx] = "\n"
   else
-    self.doc.lines[total_lines+1] = nil
-    --self.doc.super.remove(self.doc, total_lines, math.huge, math.huge, math.huge)
+    self.doc.lines[total_lines+1] = ''
   end
   for i = 1, #lines do
     if not idx or idx == i then
-      if lines[i]:find("%S") then
+      if lines[i]:find("%S") and model.state == "stopped" then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
-          self.doc.lines[i] = value
+          self.doc.lines[i] = value or "undefined"
         end)
       else
         self.doc.lines[i] = ""
       end
     end
+  end
+  if lines[#lines] ~= "\n" then
+    lines[#lines + 1] = "\n"
+  end
+  while #self.doc.lines > #lines do
+    table.remove(self.doc.lines)
   end
 end
 
@@ -427,6 +386,7 @@ debugger.DebuggerStackView = DebuggerStackView
 function DebuggerStackView:new()
   DebuggerStackView.super.new(self)
   self.stack = { }
+  self.is_debugger_view = true
   self.target_size = config.plugins.debugger.drawer_size
   self.scrollable = true
   self.init_size = true
@@ -467,17 +427,23 @@ function DebuggerStackView:set_stack(stack)
   end
 
   self.hovered_frame = nil
+
   self.active_frame = 1
+  for i,v in ipairs(stack) do
+    local func, args, file, line = table.unpack(v)
+    if core.root_project():get_file_info(file) then
+      self.active_frame = i
+      model:frame(i - 1)
+      break
+    end
+  end
+  
   core.redraw = true
 end
 
-function DebuggerStackView:get_item_height()
-  return style.code_font:get_height() + style.padding.y*2
-end
-
-function DebuggerStackView:get_scrollable_size()
-  return #self.stack and self:get_item_height() * (#self.stack + 1)
-end
+function DebuggerStackView:get_item_height() return style.debugger.font:get_height() + style.padding.y end
+function DebuggerStackView:get_scrollable_size() return #self.stack and self:get_item_height() * (#self.stack + 1) end
+function DebuggerStackView:get_h_scrollable_size() return #self.stack and math.huge end
 
 function DebuggerStackView:on_mouse_moved(px, py, ...)
   DebuggerStackView.super.on_mouse_moved(self, px, py, ...)
@@ -491,48 +457,33 @@ function DebuggerStackView:on_mouse_moved(px, py, ...)
   end
 end
 
-function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
-  local caught = DebuggerStackView.super.on_mouse_pressed(self, button, x, y, clicks)
-  if caught then
-    return caught
-  end
-  if self.hovered_frame then
-    if clicks >= 2 and model.state == "stopped" then
-      model:frame(self.hovered_frame - 1)
-      self.active_frame = self.hovered_frame
-      debugger:set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
-    end
-    jump_to_file(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
-    return true;
-  end
-end
-
 
 function DebuggerStackView:draw()
   self:draw_background(style.background3)
-  local h = style.code_font:get_height()
+  if not core.root_project() then return end
+  local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
-  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h + style.padding.y * 2)
+  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, item_height)
   for i,v in ipairs(self.stack) do
-    local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y*2 + h
-    local y = oy + yoffset - style.padding.y
+    local yoffset = i*item_height
+    local y = oy + yoffset
     if y + h + style.padding.y*2 >= self.position.y and y < self.position.y + self.size.y then
-      if self.hovered_frame == i or self.active_frame == i then
-        renderer.draw_rect(ox, y, self.size.x, h + style.padding.y*2, style.line_highlight)
+      if self.hovered_frame == i or (model.state ~= "running" and self.active_frame == i) then
+        -- should be math.huge, but for some reason doesn't draw the rect.
+        renderer.draw_rect(ox, y, 1000000000, item_height, (self.active_frame == i and model.state ~= "running") and style.debugger.instruction or style.line_highlight)
       end
       local tx = ox + style.padding.y
-      tx = common.draw_text(style.code_font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, h)
-      tx = common.draw_text(style.code_font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, h)
-      local tokens, state = tokenizer.tokenize(c_syntax, v[2])
+      tx = common.draw_text(style.debugger.font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, item_height)
+      tx = common.draw_text(style.debugger.font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, item_height)
       for _,  token in ipairs(self.stack_tokens[i]) do
         local type, text = table.unpack(token)
         if tx < self.position.x + self.size.x then
-          tx = common.draw_text(style.code_font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
+          tx = common.draw_text(style.debugger.font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, item_height)
         end
       end
       if tx < self.position.x + self.size.x then
-        tx = common.draw_text(style.code_font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
+        tx = common.draw_text(style.debugger.font, style.text, " " .. core.root_project():normalize_path(v[3]) .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, item_height)
       end
     end
   end
@@ -548,43 +499,63 @@ function DebuggerStackView:refresh(on_finish)
   end)
 end
 
+
+local has_terminal, terminal = pcall(require, 'plugins.terminal')
+local TerminalView = terminal and terminal.class
 debugger.stack_view = DebuggerStackView()
 debugger.watch_variable_view = DebuggerWatchVariableView()
 debugger.watch_result_view = DebuggerWatchResultView()
+debugger.terminal_view = has_terminal and TerminalView({ shell = "DUMMY", font = style.debugger.font })
+if debugger.terminal_view then debugger.terminal_view.is_debugger_view = true end
+
+local old_set_active_view = core.set_active_view
+function core.set_active_view(view)
+  old_set_active_view(view)
+  if model.state == "inactive" and view.is_debugger_view and (config.plugins.debugger.hide_drawer_after and (system.get_time() - debugger.last_exited) < config.plugins.debugger.hide_drawer_after) then
+    debugger.drawer_visible = true
+  end
+end
 
 core.add_thread(function()
   local node = core.root_view:get_active_node()
   debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
-  debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
-  debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  if debugger.terminal_view then
+    debugger.terminal_view_node = debugger.stack_view_node:split("right", debugger.terminal_view, { y = true }, true)
+    debugger.watch_variable_view_node = debugger.terminal_view_node:split("up", debugger.watch_variable_view, { y = true }, true)
+    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  else
+    debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
+    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  end
 end)
 
-local item = core.status_view:add_item({
-  predicate = function() return config.target_binary or model.state ~= "inactive" end,
-  name = "debugger:status",
-  alignment = StatusView.Item.RIGHT,
-  command = function()
-    if model.state == "inactive" then
-      command.perform("debugger:start")
-    elseif model.state == "stopped" then
-      command.perform("debugger:continue")
-    elseif model.state == "running" then
-      command.perform("debugger:halt")
+core.add_thread(function() 
+  local item = core.status_view:add_item({
+    predicate = function() return config.target_binary or model.state ~= "inactive" end,
+    name = "debugger:status",
+    alignment = StatusView.Item.RIGHT,
+    command = function()
+      if model.state == "inactive" then
+        command.perform("debugger:start")
+      elseif model.state == "stopped" then
+        command.perform("debugger:continue")
+      elseif model.state == "running" then
+        command.perform("debugger:halt")
+      end
     end
+  })
+  item.on_draw = function(x, y, h, calc_only)
+    local color = {
+      stopped = style.debugger.breakpoint,
+      running = style.good,
+      starting = style.warn
+    }
+    local size = (h - style.padding.y * 2) / 2
+    renderer.draw_rect(x, y  + (h - size) / 2, size, size, color[model.state] or style.dim)
+    local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
+    return nx - x
   end
-})
-item.on_draw = function(x, y, h, calc_only)
-  local color = {
-    stopped = style.debugger.breakpoint,
-    running = style.good,
-    starting = style.warn
-  }
-  local size = (h - style.padding.y * 2) / 2
-  renderer.draw_rect(x, y  + (h - size) / 2, size, size, color[model.state] or style.dim)
-  local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
-  return nx - x
-end
-
+end)
 
 local has_build, build = pcall(require, 'plugins.build')
 
@@ -602,31 +573,77 @@ end, {
     model:halt()
   end
 })
+
 command.add(function()
-  return config.target_binary and system.get_file_info(config.target_binary) and model.state == "inactive"
+  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary)) and model.state == "inactive"
 end, {
   ["debugger:start"] = function()
     debugger.last_start_time = system.get_time()
+    if debugger.terminal_view then debugger.terminal_view.terminal:clear() end
     model:start(config.target_binary, config.target_binary_arguments, function()
       debugger:paused()
     end, function()
       debugger:exited()
+    end, function(line, source)
+      if debugger.terminal_view then
+        debugger.terminal_view:input(line .. "\r\n")
+      else
+        print(line)
+      end
     end)
+  end
+})
+
+command.add(function()
+  return config.target_binary and (system.get_file_info(core.project_absolute_path(config.target_binary)) or has_build) and model.state ~= "running"
+end, {
+  ["debugger:start-or-continue"] = function()
+    if not system.get_file_info(core.project_absolute_path(config.target_binary)) then
+      command.perform("build:build")
+    else
+      command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")
+    end
   end
 })
 
 command.add(function()
   return core.active_view and core.active_view.doc
 end, {
-  ["debugger:toggle-breakpoint"] = function()
-    local line1, col1, line2, col2, swap = core.active_view.doc:get_selection(true)
-    if line1 then
-      if model:has_breakpoint(core.active_view.doc.abs_filename, line1) then
-        model:add_breakpoint(core.active_view.doc.abs_filename, line1)
+  ["debugger:toggle-line-breakpoint"] = function(line)
+    if not line then line = core.active_view.doc:get_selection(true) end
+    if line then
+      local file = core.active_view.doc.abs_filename
+      if not model:has_breakpoint(file, line) then
+        model:add_breakpoint(file, line)
+        if not debugger.state.breakpoints then debugger.state.breakpoints = {} end
+        if not debugger.state.breakpoints[file] then debugger.state.breakpoints[file] = {} end
+        debugger.state.breakpoints[file][line] = true
       else
-        model:remove_breakpoint(core.active_view.doc.abs_filename, line1)
+        model:remove_breakpoint(file, line)
+        if debugger.state.breakpoints[file] then debugger.state.breakpoints[file][line] = nil end
       end
+      debugger:save()
     end
+  end
+})
+
+command.add(function()
+  return core.active_view and core.active_view:is(DebuggerStackView) and core.active_view.hovered_frame, core.active_view
+end, {
+  ["debugger:jump-hovered-frame"] = function(view)
+    jump_to_file(view.stack[view.hovered_frame][3], view.stack[view.hovered_frame][4])
+  end
+})
+    
+command.add(function()
+  return core.active_view and core.active_view:is(DebuggerStackView) and core.active_view.hovered_frame and model.state == "stopped", core.active_view
+end, {
+  ["debugger:select-hovered-frame"] = function(view)
+    model:frame(view.hovered_frame - 1, function()
+      debugger.watch_result_view:refresh()
+    end)
+    view.active_frame = view.hovered_frame
+    debugger:set_instruction(view.stack[view.hovered_frame][3], view.stack[view.hovered_frame][4])
   end
 })
 
@@ -640,6 +657,13 @@ end, {
   ["debugger:terminate"] = function() model:terminate() end
 })
 
+command.add(DebuggerWatchVariableView, {
+  ["debugger:refresh-watches"] = function() 
+    debugger.watch_result_view:refresh()
+    core.set_active_view(core.next_active_view or core.last_active_view) 
+  end
+})
+
 
 command.add(function()
   return model.state == "stopped"
@@ -650,19 +674,20 @@ end, {
 })
 
 keymap.add {
+  ["1lclick"]            = "debugger:jump-hovered-frame",
+  ["2lclick"]            = "debugger:select-hovered-frame",
+  ["return"]             = "debugger:refresh-watches",
+  ["keypad enter"]       = "debugger:refresh-watches",
   ["f7"]                 = "debugger:step-over",
   ["shift+f7"]           = "debugger:step-into",
   ["ctrl+f7"]            = "debugger:step-out",
-  ["f8"]                 = { "debugger:start", "debugger:continue", "debugger:halt" },
+  ["f8"]                 = { "debugger:start-or-continue", "debugger:halt" },
   ["shift+f8"]           = "debugger:terminate",
-  ["f9"]                 = "debugger:toggle-breakpoint",
+  ["f9"]                 = "debugger:toggle-line-breakpoint",
   ["f12"]                = "debugger:toggle-drawer",
 }
 
--- So that we can attach to terminal.
-local status, terminal = pcall(require, "plugins.terminal")
-if status then
-  local TerminalView = terminal and terminal.class
+if has_terminal then
   command.add(function()
     return terminal and model.state == "inactive" and core.active_view and core.active_view:is(TerminalView)
   end, {

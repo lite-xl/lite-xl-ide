@@ -1,4 +1,4 @@
-## Build Pluign
+## Build Plugin
 
 The build plugin works on a set of *targets*, that are either specified by a combination of the project config and user config, or, if no targets are specified, inferred automatically from the installed build backends.
 
@@ -38,4 +38,11 @@ The `meson` backend engages with a `meson.build` file. If a `meson.build` file e
 
 #### internal
 
-If no other backend has engaged, internal will look for a `src` folder. If it finds it, it will automatically compile every `*.c` or `*.cpp` file in there with standard build parameters.
+If no other backend has engaged, internal will look for a `src` folder. If it finds it, it will automatically compile every `*.c` or `*.cpp` file in there with standard build parameters. 
+You can specify also the following types of flags in the target:
+
+* `cflags` - Compile flags to pass while compinling object files for \*.c files.
+* `cxxflags` - Compile flags to pass while compiling object files for \*.cpp files.
+* `ldflags` - Linking flags to pass while linking together your object files.
+* `type` - The type of output to produce. Possible values are `static`, `shared` and `executable`. Default is `executable`.
+* `binary` - The resulting target name for the binary.

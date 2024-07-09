@@ -1,4 +1,4 @@
--- mod-version:3 -- lite-xl 2.1
+-- mod-version:4 -- lite-xl 3.0
 
 -- Configuration plugin for ide.
 -- Configures lsp to use ccls, or clangd.
