@@ -38,4 +38,4 @@ The `meson` backend engages with a `meson.build` file. If a `meson.build` file e
 
 #### internal
 
-If no other backend has engaged, internal will look for a `src` folder. If it finds it, it will automtatically compile every `*.c` or `*.cpp` file in there with standard build parameters.
+If no other backend has engaged, internal will look for a `src` folder. If it finds it, it will automatically compile every `*.c` or `*.cpp` file in there with standard build parameters.
