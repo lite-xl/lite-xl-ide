@@ -8,7 +8,7 @@ local style = require "core.style"
 local View = require "core.view"
 local DocView = require "core.docview"
 local StatusView = require "core.statusview"
-local TreeView = require "plugins.treeview"
+local TreeView = config.plugins.treeview ~= false and require "plugins.treeview"
 local ToolbarView = require "plugins.toolbarview"
 
 local build = common.merge({
@@ -561,7 +561,7 @@ build.build_bar_view = BuildBarView()
 build.message_view = BuildMessageView()
 local node = core.root_view:get_active_node()
 build.message_view_node = node:split("down", build.message_view, { y = true }, true)
-build.build_bar_node = TreeView.node.b:split("up", build.build_bar_view, {y = true})
+build.build_bar_node = TreeView and TreeView.node.b:split("up", build.build_bar_view, {y = true})
 
 
 local function argument_string_to_table(str)
