@@ -233,7 +233,7 @@ function build.set_targets(targets, type)
       v.backend = build.get_backends(type)
     end
   end
-  config.target_binary = build.targets[1].binary
+  config.target_binary = build.targets and build.targets[1].binary
 end
 
 
