@@ -88,6 +88,8 @@ local function gdb_parse_status_line(line)
     return type, line:sub(2, idx - 1), gdb_parse_status_attributes(line:sub(idx+1))
   elseif type == "~" then
     return type, gdb_parse_string(line:sub(3))
+  elseif type == "&" then
+    return type, gdb_parse_string(line:sub(3))
   elseif type == "^" then
     local quote = line:find('"')
     if idx and (not quote or idx < quote) then
@@ -108,26 +110,29 @@ function gdb:cmd(command, on_finish)
 end
 
 function gdb:should_engage(path) return true end
-function gdb:step_into()  self:cmd("step") end
-function gdb:step_over()  self:cmd("next") end
-function gdb:step_out()   self:cmd("finish") end
-function gdb:continue()   self:cmd("cont") end
-function gdb:halt()       self.running_program:interrupt() end
-function gdb:terminate()  self.running_program:terminate() end
-function gdb:frame(idx)   self:cmd("f " .. idx) end
+function gdb:step_into(on_done)  self:cmd("step", on_done) end
+function gdb:step_over(on_done)  self:cmd("next", on_done) end
+function gdb:step_out(on_done)   self:cmd("finish", on_done) end
+function gdb:continue(on_done)   self:cmd("cont", on_done) self.stack = nil end
+function gdb:halt(on_done)       self.running_program:interrupt() end
+function gdb:terminate(on_done)  self.running_program:terminate() end
+function gdb:frame(idx, on_done)   self:cmd("f " .. idx, on_done) end
 
 
 
-function gdb:add_breakpoint(path, line)
+function gdb:add_breakpoint(path, line, on_done)
   self:cmd("b " .. path .. ":" .. line, function(type, category, attributes)
     if attributes["bkpt"] then
       self.breakpoints[path .. ":" .. line] = tonumber(attributes["bkpt"]["number"])
+      if on_done then on_done() end
     end
   end)
 end
 
-function gdb:remove_breakpoint(path, line)
-  if self.breakpoints[path .. ":" .. line] then self:cmd("d " .. self.breakpoints[path .. ":" .. line]) end
+function gdb:remove_breakpoint(path, line, on_done)
+  if self.breakpoints[path .. ":" .. line] then self:cmd("d " .. self.breakpoints[path .. ":" .. line], function()
+    if on_done then on_done() end
+  end) end
   self.breakpoints[path .. ":" .. line] = nil
 end
 
@@ -184,6 +189,7 @@ function gdb:loop()
   if result == nil then return false end
   if #result > 0 then
     self.saved_result = self.saved_result .. result
+    if config.plugins.debugger.debug then io.open("debugger.out", "ab"):write(result):close() end
     while #self.saved_result > 0 do
       local newline = self.saved_result:find("\n")
       if not newline then break end
@@ -194,6 +200,7 @@ function gdb:loop()
         if category == "stopped" then
           if attributes.reason == "exited-normally" or attributes.reason == "exited" then
             self.debugger_completed()
+            self:cmd("quit")
           elseif attributes.frame and attributes.bkptno == "1" then
             self.debugger_started()
             self:continue()
@@ -227,6 +234,12 @@ function gdb:loop()
       elseif type == "=" and self.waiting_on_result then
         self.waiting_on_result(type, category, attributes)
         self.waiting_on_result = nil
+      elseif type == "=" then
+      elseif type == "&" then
+      else
+        if not line:find("^%(gdb%)") then
+          self.debugger_out(line)
+        end
       end
     end
   end
@@ -243,13 +256,17 @@ function gdb:loop()
   return true
 end
 
-local function start(gdb, program_or_terminal, arguments, started, stopped, completed)
+local build = require "plugins.build"
+local function start(gdb, program_or_terminal, arguments, started, stopped, completed, out)
   gdb.debugger_started = started
   gdb.debugger_stopped = stopped
   gdb.debugger_completed = completed
+  gdb.debugger_out = out
   gdb.running_thread = core.add_thread(function()
     if type(program_or_terminal) == "string" then
-      gdb.running_program = process.start({ "gdb", "-q", "-nx", "--interpreter=mi3", "--args", program_or_terminal, table.unpack(arguments) })
+      local args = { "gdb", "-q", "-nx", "--interpreter=mi3", "--args", core.project_absolute_path(program_or_terminal), table.unpack(arguments) }
+      core.log_quiet("Running " .. table.concat(args, " "))
+      gdb.running_program = process.start(args, { cwd = core.project_absolute_path(".") })
       gdb.waiting_on_result = function(type, category, attributes)
         gdb:cmd("set filename-display absolute")
         gdb:cmd("start")
@@ -262,18 +279,20 @@ local function start(gdb, program_or_terminal, arguments, started, stopped, comp
     gdb.saved_result = ""
     gdb.accumulator = {}
     while gdb:loop() do end
+    local status = gdb.running_program:returncode()
+    core.log_quiet("Debugger finished.")
     gdb.running_program = nil
     gdb.running_thread = nil
   end)
 end
 
-function gdb:start(program, arguments, started, stopped, completed)
-  return start(self, program, arguments, started, stopped, completed)
+function gdb:start(program, arguments, started, stopped, completed, out)
+  return start(self, program, arguments, started, stopped, completed, out)
 end
 
 
-function gdb:attach(terminal, started, stopped, completed)
-  start(self, terminal, nil, started, stopped, completed)
+function gdb:attach(terminal, started, stopped, completed, out)
+  start(self, terminal, nil, started, stopped, completed, out)
 end
 
 return gdb

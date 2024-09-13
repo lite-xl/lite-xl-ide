@@ -128,14 +128,15 @@ local debugger = {
 if not style.debugger then style.debugger = {} end
 style.debugger.breakpoint = style.debugger.breakpoint or { common.color "#ca3434" }
 style.debugger.instruction = style.debugger.instruction or { common.color "#3434ca" }
+style.debugger.font = style.code_font:copy(style.code_font:get_height()*0.7)
 
 config.plugins.debugger = common.merge({
   step_refresh_watches = true,
   interval = 0.01,
   drawer_size = 100,
   hover_time_watch = 1,
-  hover_symbol_pattern_backward = "[^%s+-%(%)%*/;,]+",
-  hover_symbol_pattern_forward = "[^%s+-%(%)%[%*%./;,]+"
+  hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]+",
+  hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
 }, config.plugins.debugger)
 
 local function jump_to_file(file, line)
@@ -155,8 +156,16 @@ function debugger:set_instruction(path, line)
 end
 
 function debugger:refresh()
-  model:instruction(function(path, line, func)
-    self:set_instruction(path, line)
+  model:stacktrace(function(frames)
+    local frame = frames[1]
+    for i,v in ipairs(frames) do
+      local func, args, file, line = table.unpack(v)
+      if system.get_file_info(file) then
+        frame = v
+        break
+      end
+    end
+    if frame then self:set_instruction(frame[3], frame[4]) end
   end)
   if self:should_show_drawer() then
     self.stack_view:refresh()
@@ -341,6 +350,7 @@ function DebuggerWatchHalf:try_close(do_close) end
 function DebuggerWatchHalf:get_scrollable_size() return self.size.y end
 function DebuggerWatchHalf:get_gutter_width() return 0 end
 function DebuggerWatchHalf:draw_line_gutter(idx, x, y) end
+function DebuggerWatchHalf:get_font() return style.debugger.font end
 
 function DebuggerWatchHalf:get_line_screen_position(line, col)
   local x, y = self:get_content_offset()
@@ -374,7 +384,7 @@ function DebuggerWatchHalf:draw_line_body(idx, x, y)
 end
 
 function DebuggerWatchHalf:get_line_height()
-  return style.code_font:get_height() + style.padding.y * 2
+  return style.debugger.font:get_height() + style.padding.y * 2
 end
 
 function DebuggerWatchHalf:draw_background(color)
@@ -472,7 +482,7 @@ function DebuggerStackView:set_stack(stack)
 end
 
 function DebuggerStackView:get_item_height()
-  return style.code_font:get_height() + style.padding.y*2
+  return style.debugger.font:get_height() + style.padding.y*2
 end
 
 function DebuggerStackView:get_scrollable_size()
@@ -510,7 +520,7 @@ end
 
 function DebuggerStackView:draw()
   self:draw_background(style.background3)
-  local h = style.code_font:get_height()
+  local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
   common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h + style.padding.y * 2)
@@ -518,21 +528,20 @@ function DebuggerStackView:draw()
     local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y*2 + h
     local y = oy + yoffset - style.padding.y
     if y + h + style.padding.y*2 >= self.position.y and y < self.position.y + self.size.y then
-      if self.hovered_frame == i or self.active_frame == i then
-        renderer.draw_rect(ox, y, self.size.x, h + style.padding.y*2, style.line_highlight)
+      if self.hovered_frame == i or (model.state ~= "running" and self.active_frame == i) then
+        renderer.draw_rect(ox, y, self.size.x, h + style.padding.y*2, (self.active_frame == i and model.state ~= "running") and style.debugger.instruction or style.line_highlight)
       end
       local tx = ox + style.padding.y
-      tx = common.draw_text(style.code_font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, h)
-      tx = common.draw_text(style.code_font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, h)
-      local tokens, state = tokenizer.tokenize(c_syntax, v[2])
+      tx = common.draw_text(style.debugger.font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, h)
+      tx = common.draw_text(style.debugger.font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, h)
       for _,  token in ipairs(self.stack_tokens[i]) do
         local type, text = table.unpack(token)
         if tx < self.position.x + self.size.x then
-          tx = common.draw_text(style.code_font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
+          tx = common.draw_text(style.debugger.font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
         end
       end
       if tx < self.position.x + self.size.x then
-        tx = common.draw_text(style.code_font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
+        tx = common.draw_text(style.debugger.font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
       end
     end
   end
@@ -548,43 +557,54 @@ function DebuggerStackView:refresh(on_finish)
   end)
 end
 
+
+local has_terminal, terminal = pcall(require, 'plugins.terminal')
+local TerminalView = terminal and terminal.class
 debugger.stack_view = DebuggerStackView()
 debugger.watch_variable_view = DebuggerWatchVariableView()
 debugger.watch_result_view = DebuggerWatchResultView()
+debugger.terminal_view = has_terminal and TerminalView({ shell = "DUMMY", font = style.debugger.font })
 
 core.add_thread(function()
   local node = core.root_view:get_active_node()
   debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
-  debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
-  debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  if debugger.terminal_view then
+    debugger.terminal_view_node = debugger.stack_view_node:split("right", debugger.terminal_view, { y = true }, true)
+    debugger.watch_variable_view_node = debugger.terminal_view_node:split("up", debugger.watch_variable_view, { y = true }, true)
+    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  else
+    debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
+    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+  end
 end)
 
-local item = core.status_view:add_item({
-  predicate = function() return config.target_binary or model.state ~= "inactive" end,
-  name = "debugger:status",
-  alignment = StatusView.Item.RIGHT,
-  command = function()
-    if model.state == "inactive" then
-      command.perform("debugger:start")
-    elseif model.state == "stopped" then
-      command.perform("debugger:continue")
-    elseif model.state == "running" then
-      command.perform("debugger:halt")
+core.add_thread(function() 
+  local item = core.status_view:add_item({
+    predicate = function() return config.target_binary or model.state ~= "inactive" end,
+    name = "debugger:status",
+    alignment = StatusView.Item.RIGHT,
+    command = function()
+      if model.state == "inactive" then
+        command.perform("debugger:start")
+      elseif model.state == "stopped" then
+        command.perform("debugger:continue")
+      elseif model.state == "running" then
+        command.perform("debugger:halt")
+      end
     end
+  })
+  item.on_draw = function(x, y, h, calc_only)
+    local color = {
+      stopped = style.debugger.breakpoint,
+      running = style.good,
+      starting = style.warn
+    }
+    local size = (h - style.padding.y * 2) / 2
+    renderer.draw_rect(x, y  + (h - size) / 2, size, size, color[model.state] or style.dim)
+    local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
+    return nx - x
   end
-})
-item.on_draw = function(x, y, h, calc_only)
-  local color = {
-    stopped = style.debugger.breakpoint,
-    running = style.good,
-    starting = style.warn
-  }
-  local size = (h - style.padding.y * 2) / 2
-  renderer.draw_rect(x, y  + (h - size) / 2, size, size, color[model.state] or style.dim)
-  local nx = common.draw_text(style.font, style.text, model.state, "left", x + size + style.padding.x / 2, y, nil, h)
-  return nx - x
-end
-
+end)
 
 local has_build, build = pcall(require, 'plugins.build')
 
@@ -602,8 +622,9 @@ end, {
     model:halt()
   end
 })
+
 command.add(function()
-  return config.target_binary and system.get_file_info(config.target_binary) and model.state == "inactive"
+  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary)) and model.state == "inactive"
 end, {
   ["debugger:start"] = function()
     debugger.last_start_time = system.get_time()
@@ -611,7 +632,21 @@ end, {
       debugger:paused()
     end, function()
       debugger:exited()
+    end, function(line)
+      if debugger.terminal_view then
+        debugger.terminal_view:input(line .. "\r\n")
+      else
+        print(line)
+      end
     end)
+  end
+})
+
+command.add(function()
+  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary))
+end, {
+  ["debugger:start-or-continue"] = function()
+    command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")
   end
 })
 
@@ -659,10 +694,7 @@ keymap.add {
   ["f12"]                = "debugger:toggle-drawer",
 }
 
--- So that we can attach to terminal.
-local status, terminal = pcall(require, "plugins.terminal")
-if status then
-  local TerminalView = terminal and terminal.class
+if has_terminal then
   command.add(function()
     return terminal and model.state == "inactive" and core.active_view and core.active_view:is(TerminalView)
   end, {

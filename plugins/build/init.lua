@@ -36,6 +36,38 @@ local build = common.merge({
   shell = (PLATFORM == "Windows" and "START /B" or "bash -c")
 }, config.plugins.build)
 
+
+function build.argument_string_to_table(str)
+  if not str then return nil end
+  local s = str:find("%S")
+  local t = {}
+  local quote_open = nil
+  while true do
+    if quote_open then
+      local a = str:find(quote_open, s)
+      if not a then error("can't find closing quote in " .. str .. " from " .. s) end
+      table.insert(t, str:sub(s, a-1))
+      s = a + 1
+      quote_open = nil
+    else
+      local e = str:find("[\"' ]", s)
+      if not e then break end
+      local sample = str:sub(e, e)
+      if sample == '"' or sample == "'" then
+        if s < e then table.insert(t, str:sub(s, e - 1)) end
+        s = e + 1
+        quote_open = sample
+      else
+        local ne = select(2, str:find("^%s*", e))
+        if e > s then table.insert(t, str:sub(s,e - 1)) end
+        s = ne + 1
+      end
+    end
+  end
+  if s < #str then table.insert(t, str:sub(s)) end
+  return t
+end
+
 local function get_plugin_directory()
   local paths = {
     USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. "build",
@@ -84,7 +116,7 @@ if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir,
     if state_func then
       build.state = state_func()
       core.add_thread(function()
-        config.target_binary_arguments = build.split_argument_string(build.state.previous_arguments[#build.state.previous_arguments])
+        config.target_binary_arguments = build.argument_string_to_table(build.state.previous_arguments[#build.state.previous_arguments])
       end)
     else
       core.error("error loading state file for build: %s", err)
@@ -198,7 +230,7 @@ function build.run_tasks(tasks, on_done, on_line)
               for i,task in ipairs(bundle.tasks) do
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
-                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}) })
+                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}), cwd = core.project_absolute_path(".") })
                   build.message_view:add_message(table.concat(task.cmd, " "))
                   total_running = total_running + 1
                 end
@@ -221,7 +253,7 @@ function build.output(line) core.log(line) end
 function build.set_target(target)
   target = common.clamp(target, 1, #build.targets)
   build.current_target = target
-  config.target_binary = build.targets[target].binary
+  config.target_binary = build.targets and build.targets[target] and build.targets[target].binary
   build.state.target = target
   save_state()
 end
@@ -233,7 +265,7 @@ function build.set_targets(targets, type)
       v.backend = build.get_backends(type)
     end
   end
-  config.target_binary = build.targets and build.targets[1].binary
+  config.target_binary = build.targets and #build.targets > 0 and build.targets[1].binary
 end
 
 
@@ -263,18 +295,17 @@ function build.escape_arguments(arguments)
   if type(arguments) == "table" then
     local new_arguments = {}
     for i,arg in ipairs(arguments) do
-      table.insert(new_arguments, "'" .. arg:gsub("'", "'\"'\"'"):gsub("\\", "\\\\") .. "'")
+      if not arg:find("[ \"']") then 
+        table.insert(new_arguments, arg)
+      elseif not arg:find("[']") then 
+        table.insert(new_arguments, "'" .. arg .. "'")
+      elseif not arg:find("[\"]") then 
+        table.insert(new_arguments, "\"" .. arg .. "\"")
+      else
+        table.insert(new_arguments, "'" .. arg:gsub("'", "'\"'\"'"):gsub("\\", "\\\\") .. "'")
+      end
     end
     return new_arguments
-  end
-  return arguments
-end
-
-local c_syntax
-function build.split_argument_string(arguments)
-  if type(arguments) == "string" then
-    -- Bad, but fine for now. Should probably use a tokenizer to properly get the strings into their appropriate arguments.
-    return split(" ", arguments)
   end
   return arguments
 end
@@ -564,35 +595,6 @@ build.message_view_node = node:split("down", build.message_view, { y = true }, t
 build.build_bar_node = TreeView and TreeView.node.b:split("up", build.build_bar_view, {y = true})
 
 
-local function argument_string_to_table(str)
-  local s = str:find("%S")
-  local t = {}
-  local quote_open = nil
-  while true do
-    if quote_open then
-      local a = str:find(quote_open, s)
-      if not a then error("can't find closing quote in " .. str) end
-      table.insert(t, str:sub(s, a-1))
-      quote_open = nil
-    else
-      local e = str:find("[\"' ]", s)
-      if not e then break end
-      local sample = str:sub(e, e)
-      if sample == '"' or sample == "'" then
-        if s < e then table.insert(t, str:sub(s, e - 1)) end
-        s = e + 1
-        quote_open = sample
-      else
-        _, e = str:find("%s*", s)
-        table.insert(t, str:sub(s,e))
-        s = e + 1
-      end
-    end
-  end
-  table.insert(t, str:sub(s))
-  return t
-end
-
 
 core.status_view:add_item({
   predicate = function() return config.target_binary end,
@@ -606,16 +608,18 @@ core.status_view:add_item({
   end,
   command = function()
      core.command_view:enter("Set Target Binary", {
-      text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(config.target_binary_arguments, " ")) or ""),
+      text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(build.escape_arguments(config.target_binary_arguments), " ")) or ""),
       submit = function(text)
         local i = text:find(" ")
         if i then
           config.target_binary = text:sub(1, i-1)
-          config.target_binary_arguments = argument_string_to_table(text:sub(i+1))
+          config.target_binary_arguments = build.argument_string_to_table(text:sub(i+1))
+          table.insert(build.state.previous_arguments, text:sub(i+1))
         else
           config.target_binary = text
           config.target_binary_arguments = nil
         end
+        save_state()
       end
     })
   end
@@ -701,7 +705,7 @@ end, {
   ["build:run-or-term-or-kill-with-arguments"] = function(arguments)
     core.command_view:enter(config.target_binary .. " ", {
       submit = function(text)
-        config.target_binary_arguments = build.split_argument_string(text)
+        config.target_binary_arguments = build.argument_string_to_table(text)
         command.perform("build:run-or-term-or-kill", text)
         local has = false
         for i,v in ipairs(build.state.previous_arguments) do
