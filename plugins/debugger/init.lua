@@ -134,8 +134,8 @@ config.plugins.debugger = common.merge({
   step_refresh_watches = true,
   interval = 0.01,
   drawer_size = 100,
-  hover_time_watch = 1,
-  hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]+",
+  hover_time_watch = 0.5,
+  hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
   hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
 }, config.plugins.debugger)
 
@@ -226,7 +226,7 @@ end
 
 function DocView:update()
   docview_update(self)
-  if model.state == "stopped" and not self.watch_calulating and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and not self.watch_hover_value and self.last_moved_time and
+  if model.state == "stopped" and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and self.watch_token == nil and self.last_moved_time and
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
@@ -235,12 +235,14 @@ function DocView:update()
       local _, e = self.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
       s, e = #self.doc.lines[line] - s + 1, e or col
       local token = self.doc.lines[line]:sub(s, e):gsub("\n$", "")
-      if #token > 1 and not self.watch_token then
+      if #token > 0 and not self.watch_token then
         model:variable(token, function(result)
           self.watch_hover_value = result
         end)
       end
       self.watch_token = { line, s, e }
+    else
+      self.watch_token = false
     end
   end
 end
@@ -415,7 +417,7 @@ function DebuggerWatchResultView:refresh(idx)
     if not idx or idx == i then
       if lines[i]:find("%S") then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
-          self.doc.lines[i] = value
+          self.doc.lines[i] = value or "undefined"
         end)
       else
         self.doc.lines[i] = ""
@@ -482,7 +484,7 @@ function DebuggerStackView:set_stack(stack)
 end
 
 function DebuggerStackView:get_item_height()
-  return style.debugger.font:get_height() + style.padding.y*2
+  return style.debugger.font:get_height() + style.padding.y
 end
 
 function DebuggerStackView:get_scrollable_size()
@@ -508,7 +510,9 @@ function DebuggerStackView:on_mouse_pressed(button, x, y, clicks)
   end
   if self.hovered_frame then
     if clicks >= 2 and model.state == "stopped" then
-      model:frame(self.hovered_frame - 1)
+      model:frame(self.hovered_frame - 1, function()
+        debugger.watch_result_view:refresh()
+      end)
       self.active_frame = self.hovered_frame
       debugger:set_instruction(self.stack[self.hovered_frame][3], self.stack[self.hovered_frame][4])
     end
@@ -520,28 +524,29 @@ end
 
 function DebuggerStackView:draw()
   self:draw_background(style.background3)
+  if not core.root_project() then return end
   local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
-  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, h + style.padding.y * 2)
+  common.draw_text(style.font, style.text, "Stack Trace", "left", ox + style.padding.x, oy, 0, item_height)
   for i,v in ipairs(self.stack) do
-    local yoffset = style.padding.y + (i - 1)*item_height + style.padding.y*2 + h
-    local y = oy + yoffset - style.padding.y
+    local yoffset = i*item_height
+    local y = oy + yoffset
     if y + h + style.padding.y*2 >= self.position.y and y < self.position.y + self.size.y then
       if self.hovered_frame == i or (model.state ~= "running" and self.active_frame == i) then
-        renderer.draw_rect(ox, y, self.size.x, h + style.padding.y*2, (self.active_frame == i and model.state ~= "running") and style.debugger.instruction or style.line_highlight)
+        renderer.draw_rect(ox, y, self.size.x, item_height, (self.active_frame == i and model.state ~= "running") and style.debugger.instruction or style.line_highlight)
       end
       local tx = ox + style.padding.y
-      tx = common.draw_text(style.debugger.font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, h)
-      tx = common.draw_text(style.debugger.font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, h)
+      tx = common.draw_text(style.debugger.font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, item_height)
+      tx = common.draw_text(style.debugger.font, style.text, v[1] .. " ", "left", tx, oy + yoffset, 0, item_height)
       for _,  token in ipairs(self.stack_tokens[i]) do
         local type, text = table.unpack(token)
         if tx < self.position.x + self.size.x then
-          tx = common.draw_text(style.debugger.font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, h)
+          tx = common.draw_text(style.debugger.font, style.syntax[type] or style.text, text, "left", tx, oy + yoffset, 0, item_height)
         end
       end
       if tx < self.position.x + self.size.x then
-        tx = common.draw_text(style.debugger.font, style.text, " " .. v[3] .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, h)
+        tx = common.draw_text(style.debugger.font, style.text, " " .. core.root_project():normalize_path(v[3]) .. (v[4] and (" line " .. v[4]) or ""), "left", tx, oy + yoffset, 0, item_height)
       end
     end
   end
@@ -643,7 +648,7 @@ end, {
 })
 
 command.add(function()
-  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary))
+  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary)) and model.state ~= "running"
 end, {
   ["debugger:start-or-continue"] = function()
     command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")
@@ -688,7 +693,7 @@ keymap.add {
   ["f7"]                 = "debugger:step-over",
   ["shift+f7"]           = "debugger:step-into",
   ["ctrl+f7"]            = "debugger:step-out",
-  ["f8"]                 = { "debugger:start", "debugger:continue", "debugger:halt" },
+  ["f8"]                 = { "debugger:start-or-continue", "debugger:halt" },
   ["shift+f8"]           = "debugger:terminate",
   ["f9"]                 = "debugger:toggle-breakpoint",
   ["f12"]                = "debugger:toggle-drawer",

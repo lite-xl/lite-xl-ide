@@ -78,16 +78,14 @@ local function get_archiver(target) return get_field(target, nil, "ar") end
 
 local function get_source_files(target)
   local files = {}
-  for dir_name, file in core.get_project_files() do
-    local src = file.filename
-    if dir_name == core.project_dir and file.type == "file" then
-      local compiler = get_compiler(target, src)
-      if compiler then table.insert(files, src) end
-    end
-  end
-  if target.srcs then
+  for project, file in core.root_project():files() do
+    local file = file.filename
     for i, src in ipairs(target.srcs) do
-      if src:find("^/") == 1 and get_compiler(target, src) then table.insert(files, src) end
+      local path = core.root_project():absolute_path(src)
+      if file:find(path, 1, false) == 1 and get_compiler(target, file) then 
+        table.insert(files, file)
+        break
+      end  
     end
   end
   return files
@@ -99,14 +97,14 @@ local function get_compile_flags(target, file)
   return get_field(target, file, "cflags")
 end
 
-function internal.infer_targets()
+function internal.infer()
   -- autodetect
   local srcs = nil
-  if system.get_file_info("src") then
+  if system.get_file_info(core.root_project():absolute_path("src")) then
     srcs = { "src" }
     return {
-      { name = "debug", binary = common.basename(core.project_dir) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
-      { name = "release", binary = common.basename(core.project_dir) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
+      { name = "debug", binary = common.basename(core.root_project().path) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
+      { name = "release", binary = common.basename(core.root_project().path) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
     }
   end
 end
@@ -122,18 +120,18 @@ function internal.build(target, callback)
   local objects = {}
   local stats = {}
   local max_ostat = nil
-  common.mkdirp(target.obj or "obj")
+  common.mkdirp(core.root_project():absolute_path(target.obj or "obj"))
   for i, v in ipairs(files) do
     local handle = (target.name .. v):gsub("[/\\]+", "_")
-    dependencies[i] = (target.obj or "obj") .. PATHSEP .. handle .. ".d"
-    objects[i] = (target.obj or "obj") .. PATHSEP .. handle .. ".o"
+    dependencies[i] = (target.obj or core.root_project():absolute_path("obj")) .. PATHSEP .. handle .. ".d"
+    objects[i] = (target.obj or core.root_project():absolute_path("obj")) .. PATHSEP .. handle .. ".o"
     stats[i] = system.get_file_info(v)
   end
   local dependency_jobs = {}
   for i, d in ipairs(dependencies) do
     local d_stat = system.get_file_info(d)
     if not d_stat or d_stat.modified < stats[i].modified then
-      table.insert(dependency_jobs, table_concat(get_compiler(target, files[i]), { "-MM", files[i], "-MF", d, table.unpack(get_compile_flags(target, files[i])) }))
+      table.insert(dependency_jobs, table_concat(get_compiler(target, files[i]), { "-MM", core.root_project():normalize_path(files[i]), "-MF", core.root_project():normalize_path(d), table.unpack(get_compile_flags(target, files[i])) }))
     end
   end
 
@@ -156,7 +154,7 @@ function internal.build(target, callback)
         end
       end
       if compile then
-        table.insert(compile_jobs, table_concat(get_compiler(target, files[i]), { "-fdiagnostics-color=always", "-c", files[i], "-o", objects[i], table.unpack(get_compile_flags(target, files[i])) }))
+        table.insert(compile_jobs, table_concat(get_compiler(target, core.root_project():normalize_path(files[i])), { "-fdiagnostics-color=always", "-c", core.root_project():normalize_path(files[i]), "-o", core.root_project():normalize_path(objects[i]), table.unpack(get_compile_flags(target, files[i])) }))
       end
     end
     build.run_tasks(compile_jobs, function(status)

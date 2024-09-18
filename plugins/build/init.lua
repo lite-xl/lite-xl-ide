@@ -37,6 +37,9 @@ local build = common.merge({
 }, config.plugins.build)
 
 
+if not style.build then style.build = {} end
+style.build.font = style.code_font:copy(style.code_font:get_height()*0.7)
+
 function build.argument_string_to_table(str)
   if not str then return nil end
   local s = str:find("%S")
@@ -131,8 +134,8 @@ end
 local function jump_to_file(file, line, col)
   if not core.active_view or not core.active_view.doc or core.active_view.doc.abs_filename ~= file then
     -- Check to see if the file is in the project. If it is, open it, and go to the line.
-    for i = 1, #core.project_directories do
-      if common.path_belongs_to(file, core.project_dir) then
+    for i = 1, #core.projects do
+      if file and common.path_belongs_to(file, core.projects[i].path) then
         local view = core.root_view:open_doc(core.open_doc(file))
         if line then
           view:scroll_to_line(math.max(1, line - 20), true)
@@ -146,12 +149,13 @@ end
 
 
 function build.parse_compile_line(line)
-  local _, _, file, line_number, column, type, message = line:find(build.error_pattern)
+  local stripped_line = line:gsub("\x1B%[%d+;?%d+m",""):gsub("\x1B%[[Km]", "")
+  local _, _, file, line_number, column, type, message = stripped_line:find(build.error_pattern)
   if file and (type == "warning" or type == "error") then
     return { type, file, line_number, column, message }
   end
   local _, _, file, line_number, column, message = line:find(build.file_pattern)
-  return file and { "info", file, line_number, (column or 1), message } or line
+  return file and { "info", core.root_project():normalize_path(file), line_number, (column or 1), message } or line
 end
 
 
@@ -197,7 +201,11 @@ function build.run_tasks(tasks, on_done, on_line)
               if not task.done then
                 has_unfinished = true
                 if task.program then
-                  handle_output(bundle, task.program:read_stdout())
+                  while true do
+                    local output = task.program:read_stdout()
+                    handle_output(bundle, output)
+                    if not output then break end
+                  end
                   if task.program:running() then
                     total_running = total_running + 1
                   else
@@ -267,6 +275,7 @@ function build.set_targets(targets, type)
   end
   config.target_binary = build.targets and #build.targets > 0 and build.targets[1].binary
 end
+
 
 
 function build.build(callback)
@@ -422,7 +431,7 @@ function DocView:draw_line_gutter(idx, x, y, width)
     and build.message_view.active_message
     and idx == build.message_view.active_line
   then
-    renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), build.error_color)
+    renderer.draw_rect(x, y, style.padding.x, self:get_line_height(), build.error_color)
   end
   return doc_view_draw_line_gutter(self, idx, x, y, width)
 end
@@ -477,7 +486,11 @@ function BuildMessageView:add_message(message)
 end
 
 function BuildMessageView:get_item_height()
-  return style.code_font:get_height() + style.padding.y*2
+  return style.build.font:get_height() + style.padding.y
+end
+
+function BuildMessageView:get_h_scrollable_size()
+  return math.huge
 end
 
 function BuildMessageView:get_scrollable_size()
@@ -517,7 +530,6 @@ local ansi_colors = {
 }
 function BuildMessageView:draw()
   self:draw_background(style.background3)
-  local h = style.code_font:get_height()
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
   local title = "Build Messages"
@@ -534,22 +546,22 @@ function BuildMessageView:draw()
     warning = build.warning_color,
     good = build.good_color
   }
-  local x = common.draw_text(style.code_font, style.accent, title, "left", ox + style.padding.x, self.position.y + style.padding.y, 0, h)
+  local x = common.draw_text(style.build.font, style.accent, title, "left", ox + style.padding.x, self.position.y + style.padding.y, 0, item_height)
   if subtitle and #subtitle == 2 then
-    common.draw_text(style.code_font, colors[subtitle[1]] or style.accent, subtitle[2], "left", x + style.padding.x, self.position.y + style.padding.y, 0, h)
+    common.draw_text(style.build.font, colors[subtitle[1]] or style.accent, subtitle[2], "left", x + style.padding.x, self.position.y + style.padding.y, 0, item_height)
   end
-  core.push_clip_rect(self.position.x, self.position.y + h + style.padding.y * 2, self.size.x, self.size.y - h - style.padding.y * 2)
+  core.push_clip_rect(self.position.x, self.position.y + item_height  + style.padding.y, self.size.x, self.size.y - item_height - style.padding.y)
   local default_color = style.text
   for i,v in ipairs(self.messages) do
-    local yoffset = style.padding.y * 2 + (i - 1)*item_height + style.padding.y + h
+    local yoffset = style.padding.y + i*item_height
     if type(v) == "table" and self.hovered_message == i or self.active_message == i then
-      renderer.draw_rect(ox, oy + yoffset - style.padding.y * 0.5, self.size.x, h + style.padding.y, style.line_highlight)
+      renderer.draw_rect(ox, oy + yoffset, self.size.x, item_height, style.line_highlight)
     end
     if type(v) == "table" then
       if #v > 2 then
-        common.draw_text(style.code_font, colors[v[1]] or style.text, v[2] .. ":" .. v[3] .. " [" .. v[1] .. "]: " .. v[5], "left", ox + style.padding.x, oy + yoffset, 0, h)
+        common.draw_text(style.build.font, colors[v[1]] or style.text, v[2] .. ":" .. v[3] .. " [" .. v[1] .. "]: " .. v[5], "left", ox + style.padding.x, oy + yoffset, 0, item_height)
       else
-        common.draw_text(style.code_font, colors[v[1]] or style.text, v[2], "left", ox + style.padding.x, oy + yoffset, 0, h)
+        common.draw_text(style.build.font, colors[v[1]] or style.text, v[2], "left", ox + style.padding.x, oy + yoffset, 0, item_height)
       end
     else
       if v:find("\x1b") then
@@ -558,12 +570,12 @@ function BuildMessageView:draw()
           local s,e,color = v:find("\x1b%[%d+;(%d+)m")
           default_color = ansi_colors[tonumber(color)] or style.text
           local line = v:sub(1, s and (s-1) or #v):gsub("\x1b%[[^a-zA-Z]*%a", "")
-          x = common.draw_text(style.code_font, default_color, line, "left", x, oy + yoffset, 0, h)
+          x = common.draw_text(style.build.font, default_color, line, "left", x, oy + yoffset, 0, item_height)
           if not e then break end
           v = v:sub(e + 1)
         end
       else
-        common.draw_text(style.code_font, default_color, v, "left", ox + style.padding.x, oy + yoffset, 0, h)
+        common.draw_text(style.build.font, default_color, v, "left", ox + style.padding.x, oy + yoffset, 0, item_height)
       end
     end
   end
@@ -626,7 +638,7 @@ core.status_view:add_item({
 })
 
 command.add(function(x, y)
-  return core.active_view and core.active_view:is(BuildMessageView) and build.message_view.visible and (y == nil or y <= build.message_view.position.y + style.padding.y * 2 + style.code_font:get_height())
+  return core.active_view and core.active_view:is(BuildMessageView) and build.message_view.visible and (y == nil or y <= build.message_view.position.y + style.padding.y * 2 + style.build.font:get_height())
 end, {
   ["build:toggle-minimize"] = function()
     build.message_view.minimized = not build.message_view.minimized
@@ -640,7 +652,7 @@ end, {
   ["build:jump-to-hovered"] = function()
     local mv = build.message_view
     mv.active_message = mv.hovered_message
-    mv.active_file = system.absolute_path(common.home_expand(mv.messages[mv.hovered_message][2]))
+    mv.active_file = core.root_project():absolute_path(mv.messages[mv.hovered_message][2])
     mv.active_line = tonumber(mv.messages[mv.hovered_message][3])
     jump_to_file(mv.active_file, tonumber(mv.messages[mv.hovered_message][3]), tonumber(mv.messages[mv.hovered_message][4]))
   end

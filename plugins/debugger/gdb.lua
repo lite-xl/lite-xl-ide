@@ -84,7 +84,7 @@ local function gdb_parse_status_line(line)
   line = chomp(line)
   local idx = line:find(",")
   local type = line:sub(1, 1)
-  if idx and type == "*" or type == "=" then
+  if idx and (type == "*" or type == "=") then
     return type, line:sub(2, idx - 1), gdb_parse_status_attributes(line:sub(idx+1))
   elseif type == "~" then
     return type, gdb_parse_string(line:sub(3))
@@ -154,7 +154,7 @@ end
 
 function gdb:variable(variable, on_finish)
   self:print(variable, function(result)
-    on_finish(result:gsub("\\n$", ""))
+    on_finish(result and result:gsub("\\n$", ""))
   end)
 end
 

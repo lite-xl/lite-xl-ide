@@ -137,9 +137,9 @@ function model:out(line)
   self.view_out(line)
 end
 
-function model:frame(idx)
+function model:frame(idx, callback)
   assert(self.state == "stopped", "can only be completed from stopped state, not while " .. self.state)
-  return self.active:frame(idx)
+  return self.active:frame(idx, callback)
 end
 
 function model:stacktrace(callback)
