@@ -134,7 +134,7 @@ function model:completed()
 end
 
 function model:out(line)
-  self.view_out(line)
+  if self.view_out then self.view_out(line) end
 end
 
 function model:frame(idx, callback)

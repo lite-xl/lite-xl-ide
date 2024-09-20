@@ -204,7 +204,7 @@ function build.run_tasks(tasks, on_done, on_line)
                   while true do
                     local output = task.program:read_stdout()
                     handle_output(bundle, output)
-                    if not output then break end
+                    if not output or output == "" then break end
                   end
                   if task.program:running() then
                     total_running = total_running + 1

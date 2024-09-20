@@ -231,7 +231,7 @@ function DocView:update()
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
     local _, s = self.doc.lines[line]:reverse():find(config.plugins.debugger.hover_symbol_pattern_backward, #self.doc.lines[line] - col - 1)
-    if s then
+    if s and not self.doc.lines[line]:sub(col, col):find("[=%s%[%(]") then
       local _, e = self.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
       s, e = #self.doc.lines[line] - s + 1, e or col
       local token = self.doc.lines[line]:sub(s, e):gsub("\n$", "")
@@ -273,73 +273,6 @@ local DebuggerWatchVariableDoc = Doc:extend()
 function DebuggerWatchVariableDoc:new()
   DebuggerWatchVariableDoc.super.new(self)
 end
-
-function DebuggerWatchVariableDoc:text_input(text, idx)
-  local line, col = self:get_selection()
-  local newline = text:find("\n")
-  if newline then
-    if line == #self.lines and newline == 1 and #self.lines[line] == 1 then
-      debugger.watch_result_view:refresh(line)
-      core.set_active_view(core.root_view)
-      return
-    else
-      text = text:sub(1, newline)
-    end
-  end
-  DebuggerWatchVariableDoc.super.text_input(self, text, idx)
-  if newline then
-    if self.lines[line] == "\n" then
-      if line < #self.lines then
-        core.set_active_view(core.root_view)
-        if line > 1 then
-          DebuggerWatchVariableDoc.super.remove(self, line-1, #self.lines[line-1], line+1, 1)
-        else
-          DebuggerWatchVariableDoc.super.remove(self, line - 1, 0, line+2, 1)
-        end
-        debugger.watch_result_view:refresh()
-      end
-    else
-      debugger.watch_result_view:refresh(line)
-      core.set_active_view(core.root_view)
-    end
-  end
-end
-
--- function DebuggerWatchVariableDoc:remove(line1, col1, line2, col2)
---   print("DELETE", line1, col1, line2, col2, "K")
---   if line2 == line1 then
---     DebuggerWatchVariableDoc.super.remove(self, line1, col1, line2, col2)
---   end
--- end
-
-function DebuggerWatchVariableDoc:delete_to_cursor(idx, ...)
-  for sidx, line1, col1, line2, col2 in self:get_selections(true, idx) do
-    if line1 == line2 then
-      if col1 ~= col2 then
-        self:remove(line1, col1, line2, col2)
-      end
-      local l2, c2 = self:position_offset(line1, col1, ...)
-      if l2 == line1 then
-        self:remove(line1, col1, l2, c2)
-        if col1 < c2 then
-          line1, col1 = l2, c2
-        end
-        self:set_selections(sidx, line1, col1)
-      end
-    end
-  end
-  self:merge_cursors(idx)
-end
-
-
-function DebuggerWatchVariableDoc:set_selections(idx, line1, col1, line2, col2, swap, rm)
-  if line2 and line2 ~= line1 then
-    line2 = line1
-    col2 = #self.lines[line1] - 1
-  end
-  DebuggerWatchVariableDoc.super.set_selections(self, idx, line1, col1, line2, col2, swap, rm)
-end
-
 
 local DebuggerWatchHalf = DocView:extend()
 function DebuggerWatchHalf:new(title, doc)
@@ -408,10 +341,9 @@ function DebuggerWatchResultView:refresh(idx)
   local lines = debugger.watch_variable_view.doc.lines
   local total_lines = lines[1]:find("%S") and #lines or 0
   if idx then
-    self.doc.lines[idx] = ""
+    self.doc.lines[idx] = "\n"
   else
     self.doc.lines[total_lines+1] = nil
-    --self.doc.super.remove(self.doc, total_lines, math.huge, math.huge, math.huge)
   end
   for i = 1, #lines do
     if not idx or idx == i then
@@ -423,6 +355,9 @@ function DebuggerWatchResultView:refresh(idx)
         self.doc.lines[i] = ""
       end
     end
+  end
+  if lines[#lines] ~= "\n" then
+    lines[#lines + 1] = "\n"
   end
 end
 
@@ -680,6 +615,13 @@ end, {
   ["debugger:terminate"] = function() model:terminate() end
 })
 
+command.add(DebuggerWatchVariableView, {
+  ["debugger:refresh-watches"] = function() 
+    debugger.watch_result_view:refresh()
+    core.set_active_view(core.next_active_view or core.last_active_view) 
+  end
+})
+
 
 command.add(function()
   return model.state == "stopped"
@@ -690,6 +632,8 @@ end, {
 })
 
 keymap.add {
+  ["return"]             = "debugger:refresh-watches",
+  ["enter"]              = "debugger:refresh-watches",
   ["f7"]                 = "debugger:step-over",
   ["shift+f7"]           = "debugger:step-into",
   ["ctrl+f7"]            = "debugger:step-out",

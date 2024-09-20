@@ -53,23 +53,6 @@ local function get_ldflags(target) return get_field(target, nil, "ldflags") end
 local function get_binary(target) return get_field(target, nil, "binary") end
 local function get_compiler(target, path)
   if not path then return get_field(target, path, "cc") end
-  if path:find("^/") ~= 1 then
-    if target.srcs then
-      local has_file = false
-      for i, v in ipairs(target.srcs) do
-        if path:find("^" .. v) then
-          has_file = true
-          break
-        end
-      end
-      if not has_file then return nil end
-    end
-    if target.ignored_files then
-      for i, v in ipairs(target.ignored_files) do
-        if path:find("^" .. v) then return nil end
-      end
-    end
-  end
   if path:find("%.c$") then return split(get_field(target, path, "cc"), "%s+") end
   if path:find("%.cc$") or path:find("%.cpp$") then return split(get_field(target, path, "cxx"), "%s+") end
   return nil
@@ -82,7 +65,7 @@ local function get_source_files(target)
     local file = file.filename
     for i, src in ipairs(target.srcs) do
       local path = core.root_project():absolute_path(src)
-      if file:find(path, 1, false) == 1 and get_compiler(target, file) then 
+      if file:find(path, 1, true) == 1 and get_compiler(target, file) then 
         table.insert(files, file)
         break
       end  
@@ -101,10 +84,9 @@ function internal.infer()
   -- autodetect
   local srcs = nil
   if system.get_file_info(core.root_project():absolute_path("src")) then
-    srcs = { "src" }
     return {
-      { name = "debug", binary = common.basename(core.root_project().path) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = srcs },
-      { name = "release", binary = common.basename(core.root_project().path) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = srcs },
+      { name = "debug", binary = common.basename(core.root_project().path) .. "-debug" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = {"-g", "-O0" }, cxxflags = { "-g", "-O0" }, srcs = { "src" } },
+      { name = "release", binary = common.basename(core.root_project().path) .. "-release" .. (PLATFORM == "Windows" and ".exe" or ""), cflags = { "-O3" }, cxxflags = { "-O3" }, srcs = { "src" } },
     }
   end
 end
