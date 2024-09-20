@@ -133,8 +133,8 @@ function model:completed()
   self.active = nil
 end
 
-function model:out(line)
-  if self.view_out then self.view_out(line) end
+function model:out(line, source)
+  if self.view_out then self.view_out(line, source) end
 end
 
 function model:frame(idx, callback)

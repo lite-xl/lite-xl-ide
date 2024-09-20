@@ -185,6 +185,16 @@ end
 
 
 function gdb:loop()
+  local out = self.running_program and self.running_program:read_stderr()
+  if out and out ~= "" then 
+    self.saved_stderr = self.saved_stderr .. out
+    while true do
+      local s,e = self.saved_stderr:find("\n")
+      if not s then break end
+      self.debugger_out(self.saved_stderr:sub(1, s - 1), "stderr")
+      self.saved_stderr = self.saved_stderr:sub(e + 1)
+    end
+  end
   local result = self.running_program and self.running_program:read_stdout()
   if result == nil then return false end
   if #result > 0 then
@@ -238,7 +248,7 @@ function gdb:loop()
       elseif type == "&" then
       else
         if not line:find("^%(gdb%)") then
-          self.debugger_out(line)
+          self.debugger_out(line, "stdout")
         end
       end
     end
@@ -277,6 +287,7 @@ local function start(gdb, program_or_terminal, arguments, started, stopped, comp
       gdb:cmd("start")
     end
     gdb.saved_result = ""
+    gdb.saved_stderr = ""
     gdb.accumulator = {}
     while gdb:loop() do end
     local status = gdb.running_program:returncode()

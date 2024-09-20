@@ -13,7 +13,6 @@ local ToolbarView = require "plugins.toolbarview"
 
 local build = common.merge({
   targets = { },
-  current_target = 1,
   thread = nil,
   interval = 0.01,
   running_bundles = {},
@@ -119,7 +118,12 @@ if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir,
     if state_func then
       build.state = state_func()
       core.add_thread(function()
-        config.target_binary_arguments = build.argument_string_to_table(build.state.previous_arguments[#build.state.previous_arguments])
+        for i,v in ipairs(build.state.previous_arguments or {}) do
+          if v[1] == build.state.target then
+            config.target_binary_arguments = build.argument_string_to_table(v[2])
+            break
+          end
+        end
       end)
     else
       core.error("error loading state file for build: %s", err)
@@ -260,8 +264,12 @@ function build.output(line) core.log(line) end
 
 function build.set_target(target)
   target = common.clamp(target, 1, #build.targets)
-  build.current_target = target
   config.target_binary = build.targets and build.targets[target] and build.targets[target].binary
+  local arguments
+  for i,v in ipairs(build.state.previous_arguments) do
+    if v[1] == target then arguments = v[2] break end
+  end
+  config.target_binary_arguments = build.argument_string_to_table(arguments)
   build.state.target = target
   save_state()
 end
@@ -282,7 +290,7 @@ function build.build(callback)
   if build.is_running() then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
-  local target = build.current_target
+  local target = build.state.target
   build.message_view:add_message("Building " .. (build.targets[target].binary and common.basename(build.targets[target].binary) or "target") .. "...")
   build.message_view.minimized = false
   local status, err = pcall(function()
@@ -320,7 +328,7 @@ function build.escape_arguments(arguments)
 end
 
 function build.get_command(arguments)
-  local target = build.current_target
+  local target = build.state.target
   local command = build.targets[target].run or config.target_binary
   if type(command) == "function" then
     command = command(build.targets[target])
@@ -351,12 +359,11 @@ end
 function build.clean(callback)
   if build.is_running() then return false end
   build.message_view:clear_messages()
-  local target = build.current_target
   build.message_view.visible = true
   build.message_view.minimized = false
-  build.message_view:add_message("Started clean " .. (build.targets[build.current_target].binary or "target") .. ".")
-  build.targets[build.current_target].backend.clean(build.targets[build.current_target], function(...)
-    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.current_target].binary or "target") .. "." })
+  build.message_view:add_message("Started clean " .. (build.targets[build.state.starget].binary or "target") .. ".")
+  build.targets[build.state.starget].backend.clean(build.targets[build.state.starget], function(...)
+    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.state.starget].binary or "target") .. "." })
     if build.on_success == "minimize" then build.message_view.minimized = true end
     if callback then callback(...) end
   end)
@@ -392,18 +399,18 @@ end
 
 ------------------ UI Elements
 core.status_view:add_item({
-  predicate = function() return build.current_target and build.targets[build.current_target] end,
+  predicate = function() return build.state.target and build.targets[build.state.target] end,
   name = "build:target",
   alignemnt = StatusView.Item.RIGHT,
   get_item = function()
     local dv = core.active_view
     return {
-      style.text, string.format("target: %s (%s)", build.targets[build.current_target].name, build.targets[build.current_target].backend.id)
+      style.text, string.format("target: %s (%s)", build.targets[build.state.target].name, build.targets[build.state.target].backend.id)
     }
   end,
   command = function()
      core.command_view:enter("Select Build Target", {
-      text = build.targets[build.current_target].name,
+      text = build.targets[build.state.target].name,
       submit = function(text)
         local has = false
         for i,v in ipairs(build.targets) do
@@ -626,7 +633,7 @@ core.status_view:add_item({
         if i then
           config.target_binary = text:sub(1, i-1)
           config.target_binary_arguments = build.argument_string_to_table(text:sub(i+1))
-          table.insert(build.state.previous_arguments, text:sub(i+1))
+          table.insert(build.state.previous_arguments, { build.state.target, text:sub(i+1) })
         else
           config.target_binary = text
           config.target_binary_arguments = nil
@@ -684,7 +691,7 @@ end, {
   end,
   ["build:next-target"] = function()
     if #build.targets > 0 then
-      build.set_target((build.current_target % #build.targets) + 1)
+      build.set_target((build.state.target % #build.targets) + 1)
     end
   end
 })
@@ -715,25 +722,27 @@ end, {
     end
   end,
   ["build:run-or-term-or-kill-with-arguments"] = function(arguments)
+    local relevant_previous_arguments
+    for i,v in ipairs(build.state.previous_arguments) do if v[1] == build.state.target then relevant_previous_arguments = v[2] break end end
     core.command_view:enter(config.target_binary .. " ", {
       submit = function(text)
         config.target_binary_arguments = build.argument_string_to_table(text)
         command.perform("build:run-or-term-or-kill", text)
         local has = false
         for i,v in ipairs(build.state.previous_arguments) do
-          if v == text then
+          if v[1] == build.state.target and v[2] == text then
             has = i
           end
         end
-        table.insert(build.state.previous_arguments, text)
         if has then table.remove(build.state.previous_arguments, has) end
+        table.insert(build.state.previous_arguments, { build.state.target, text })
         if #build.state.previous_arguments > 100 then table.remove(build.state.previous_arguments, 1) end
         save_state()
       end,
       suggest = function(text)
         return common.fuzzy_match(build.state.previous_arguments, text)
       end,
-      text = #build.state.previous_arguments > 0 and build.state.previous_arguments[#build.state.previous_arguments] or ""
+      text = relevant_previous_arguments or ""
     })
   end
 })
