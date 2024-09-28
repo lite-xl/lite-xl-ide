@@ -5,6 +5,7 @@ local keymap = require "core.keymap"
 local config = require "core.config"
 local common = require "core.common"
 local style = require "core.style"
+local storage = require "core.storage"
 local View = require "core.view"
 local DocView = require "core.docview"
 local StatusView = require "core.statusview"
@@ -109,29 +110,9 @@ local function split(splitter, str)
   return res
 end
 
-build.state = { previous_arguments = {}, target = 1 }
-local save_state = function() end
-if system.get_file_info(USERDIR .. PATHSEP .. "build") or core.try(system.mkdir, USERDIR .. PATHSEP .. "build") then
-  local filename = USERDIR .. PATHSEP .. "build" .. PATHSEP .. system.absolute_path("."):gsub("[\\/]", "-")
-  if system.get_file_info(filename) then
-    local state_func, err = loadfile(filename)
-    if state_func then
-      build.state = state_func()
-      core.add_thread(function()
-        for i,v in ipairs(build.state.previous_arguments or {}) do
-          if v[1] == build.state.target then
-            config.target_binary_arguments = build.argument_string_to_table(v[2])
-            break
-          end
-        end
-      end)
-    else
-      core.error("error loading state file for build: %s", err)
-    end
-  end
-  save_state = function()
-    io.open(filename, "wb"):write("return " .. common.serialize(build.state)):flush()
-  end
+build.state = storage.load("build", "state") or { previous_arguments = {}, target = 1 }
+local function save_state()
+  storage.save("build", "state", build.state)
 end
 
 
@@ -260,14 +241,18 @@ function build.run_tasks(tasks, on_done, on_line)
 end
 
 function build.is_running() return build.thread ~= nil end
-function build.output(line) core.log(line) end
+function build.output(line) core.log_quiet(line) end
 
 function build.set_target(target)
   target = common.clamp(target, 1, #build.targets)
   config.target_binary = build.targets and build.targets[target] and build.targets[target].binary
-  local arguments
-  for i,v in ipairs(build.state.previous_arguments) do
-    if v[1] == target then arguments = v[2] break end
+  local arguments = {}
+  for i = #build.state.previous_arguments, 1, -1 do
+    local v = build.state.previous_arguments[i]
+    if v[1] == build.state.target then
+      arguments = v[2]
+      break
+    end
   end
   config.target_binary_arguments = build.argument_string_to_table(arguments)
   build.state.target = target
@@ -339,7 +324,7 @@ function build.get_command(arguments)
       command = { build.shell, command, table.unpack(arguments) }
     else
       if not common.is_absolute_path(command) then command = "./" .. command end
-      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. (build.targets[target].wd or core.project_dir) .. "; " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. (build.targets[target].wd or core.root_project().path) .. "; " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
     end
   end
   return command
@@ -361,9 +346,9 @@ function build.clean(callback)
   build.message_view:clear_messages()
   build.message_view.visible = true
   build.message_view.minimized = false
-  build.message_view:add_message("Started clean " .. (build.targets[build.state.starget].binary or "target") .. ".")
-  build.targets[build.state.starget].backend.clean(build.targets[build.state.starget], function(...)
-    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.state.starget].binary or "target") .. "." })
+  build.message_view:add_message("Started clean " .. (build.targets[build.state.target].binary or "target") .. ".")
+  build.targets[build.state.target].backend.clean(build.targets[build.state.target], function(...)
+    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.state.target].binary or "target") .. "." })
     if build.on_success == "minimize" then build.message_view.minimized = true end
     if callback then callback(...) end
   end)
@@ -667,7 +652,7 @@ end, {
 
 local tried_term = false
 command.add(function()
-  return not build.is_running()
+  return not build.is_running() and build.state.target and build.targets[build.state.target]
 end, {
   ["build:build"] = function()
     for i,v in ipairs(core.docs) do
@@ -706,7 +691,7 @@ end, {
 
 
 command.add(function()
-  return config.target_binary and system.get_file_info(config.target_binary)
+  return config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))
 end, {
   ["build:run-or-term-or-kill"] = function(arguments)
     if build.is_running() then
