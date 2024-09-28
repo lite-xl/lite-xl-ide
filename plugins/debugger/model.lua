@@ -12,6 +12,7 @@ local StatusView = require "core.statusview"
 -- General debugger framework.
 local model = {
   breakpoints = {},
+  skip_files = {},
   backends = {
     gdb = require "plugins.debugger.gdb",
     dap = require "plugins.debugger.dap"
@@ -76,6 +77,7 @@ function model:started()
   assert(self.state == "starting", "can only started from starting state, not while " .. self.state)
   self.state = "stopped"
   for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:add_breakpoint(path, line) end end end
+  for i, files in ipairs(self.skip_files) do self.active:skip_file(files) end
   self:run()
 end
 

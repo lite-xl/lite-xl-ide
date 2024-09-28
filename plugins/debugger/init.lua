@@ -150,7 +150,15 @@ config.plugins.debugger = common.merge({
   hover_time_watch = 0.5,
   hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
   hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
+  skip_files = { 
+    "/usr/include/*",
+    "/usr/include/*/*",
+    "/usr/include/*/*/*",
+    "/usr/include/*/*/*/*"
+  }
 }, config.plugins.debugger)
+
+for i,v in ipairs(config.plugins.debugger.skip_files) do table.insert(model.skip_files, v) end
 
 local function jump_to_file(file, line)
   -- Check to see if the file is in the project. If it is, open it, and go to the line.

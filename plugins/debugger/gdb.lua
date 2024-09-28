@@ -117,7 +117,7 @@ function gdb:continue(on_done)   self:cmd("cont", on_done) self.stack = nil end
 function gdb:halt(on_done)       self.running_program:interrupt() end
 function gdb:terminate(on_done)  self.running_program:terminate() end
 function gdb:frame(idx, on_done)   self:cmd("f " .. idx, on_done) end
-
+function gdb:skip_file(file, on_done) self:cmd("skip -gfi " .. file, on_done) end
 
 
 function gdb:add_breakpoint(path, line, on_done)
