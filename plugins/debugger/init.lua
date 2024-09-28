@@ -344,7 +344,7 @@ function DebuggerWatchResultView:refresh(idx)
   if idx then
     self.doc.lines[idx] = "\n"
   else
-    self.doc.lines[total_lines+1] = nil
+    self.doc.lines[total_lines+1] = ''
   end
   for i = 1, #lines do
     if not idx or idx == i then
@@ -359,6 +359,9 @@ function DebuggerWatchResultView:refresh(idx)
   end
   if lines[#lines] ~= "\n" then
     lines[#lines + 1] = "\n"
+  end
+  while #self.doc.lines > #lines do
+    table.remove(self.doc.lines)
   end
 end
 
@@ -422,7 +425,7 @@ function DebuggerStackView:set_stack(stack)
     local func, args, file, line = table.unpack(v)
     if core.root_project():get_file_info(file) then
       self.active_frame = i
-      model:frame(i)
+      model:frame(i - 1)
       break
     end
   end
@@ -584,10 +587,14 @@ end, {
 })
 
 command.add(function()
-  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary)) and model.state ~= "running"
+  return config.target_binary and (system.get_file_info(core.project_absolute_path(config.target_binary)) or has_build) and model.state ~= "running"
 end, {
   ["debugger:start-or-continue"] = function()
-    command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")
+    if not system.get_file_info(core.project_absolute_path(config.target_binary)) then
+      command.perform("build:build")
+    else
+      command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")
+    end
   end
 })
 
