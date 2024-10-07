@@ -1,6 +1,6 @@
 ## Build Pluign
 
-The build plugin works on a set of *targets*, that are either specified by a combuination of the project config and user config, or, if no targets are specified, inferred automatically from the installed build backends.
+The build plugin works on a set of *targets*, that are either specified by a combination of the project config and user config, or, if no targets are specified, inferred automatically from the installed build backends.
 
 ### Targets
 
@@ -30,7 +30,7 @@ The `make` backend engages with `Makefile`s. If a `Makefile` exists, by default,
 
 #### shell
 
-The `shell` backend engages with a file called `build.sh`. If a `build.sh` file exists, by default the backend will infer a `debug` target, which will call the `build.sh` file with `-g`, and a `release` target, which will call the build.sh file with no arguments.
+The `shell` backend engages with a file called `build.sh`. If a `build.sh` file exists, by default the backend will infer a `debug` target, which will call the `build.sh` file with `-g`, and a `release` target, which will call the `build.sh` file with no arguments.
 
 #### meson
 
