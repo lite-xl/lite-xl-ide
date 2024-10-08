@@ -32,8 +32,8 @@ local build = common.merge({
   good_color = style.good,
   drawer_size = 100,
   on_success = "minimize",
-  terminal = (PLATFORM == "Windows" and os.getenv("COMSPEC") or "xterm"),
-  shell = (PLATFORM == "Windows" and "START /B" or "bash -c")
+  terminal = (PLATFORM == "Windows" and { os.getenv("COMSPEC") } or { "xterm", "-T", function(target) return target.name end, "-e" }),
+  shell = (PLATFORM == "Windows" and "START /B" or { "bash", "-c" })
 }, config.plugins.build)
 
 
@@ -325,7 +325,13 @@ function build.get_command(arguments)
       command = { build.shell, command, table.unpack(arguments) }
     else
       if not common.is_absolute_path(command) then command = "./" .. command end
-      command = { build.terminal, "-T", command, "-e", build.shell .. " 'cd " .. (build.targets[target].wd or core.root_project().path) .. "; " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'" }
+      local cmd = {}
+      for i,v in ipairs(type(build.terminal) == 'table' and build.terminal or { build.terminal }) do table.insert(cmd, type(v) == 'function' and v(build.targets[target], command) or v) end
+      table.insert(cmd, "")
+      for i,v in ipairs(type(build.shell) == 'table' and build.shell or { build.shell }) do cmd[#cmd] = cmd[#cmd] .. (type(v) == 'function' and v(build.targets[target], command) or v) .. " " end
+      cmd[#cmd] = cmd[#cmd] .. "'cd " .. (build.targets[target].wd or core.root_project().path) .. " && " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'"
+      print(table.concat(cmd, " "))
+      command = cmd
     end
   end
   return command
