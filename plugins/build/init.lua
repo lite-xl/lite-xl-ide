@@ -43,6 +43,7 @@ style.build.font = style.code_font:copy(style.code_font:get_height()*0.7)
 function build.argument_string_to_table(str)
   if not str then return nil end
   local s = str:find("%S")
+  if not s then return nil end
   local t = {}
   local quote_open = nil
   while true do
@@ -246,7 +247,7 @@ function build.output(line) core.log_quiet(line) end
 function build.set_target(target)
   target = common.clamp(target, 1, #build.targets)
   config.target_binary = build.targets and build.targets[target] and build.targets[target].binary
-  local arguments = {}
+  local arguments = ""
   for i = #build.state.previous_arguments, 1, -1 do
     local v = build.state.previous_arguments[i]
     if v[1] == build.state.target then
@@ -732,9 +733,46 @@ end, {
   end
 })
 
+local function select_target_commandview(submit, target, condition)
+  if target then submit(target) end
+  local target_names = {}
+  for i,v in ipairs(build.targets) do if (not condition or condition(v)) then table.insert(target_names, v.name) end end
+  core.command_view:enter("Select Target", {
+    submit = function(text)
+      for i,v in ipairs(build.targets) do if v.name == text then submit(v, i) end end
+    end,
+    suggest = function(text)
+      return common.fuzzy_match(target_names, text)
+    end,
+    validate = function(text)
+      for i,v in ipairs(target_names) do if v == text then return true end end
+      return false
+    end
+  })
+end
+
 command.add(nil, {
   ["build:toggle-drawer"] = function()
     build.message_view.visible = not build.message_view.visible
+  end,
+  ["build:select-target"] = function(target)
+    select_target_commandview(function(target, idx)
+      build.set_target(idx)
+    end, target)
+  end,
+  ["build:select-target-and-run"] = function(target)
+    select_target_commandview(function(target, idx)
+      build.set_target(idx)
+      command.perform("build:run-or-term-or-kill")
+    end, target, function(target)
+      return target.binary
+    end)
+  end,
+  ["build:select-target-and-build"] = function(target)
+    select_target_commandview(function(target, idx)
+      build.set_target(idx)
+      command.perform("build:build")
+    end, target)
   end
 })
 
@@ -753,6 +791,9 @@ keymap.add {
   ["ctrl+e"]             = "build:run-or-term-or-kill",
   ["ctrl+shift+e"]       = "build:run-or-term-or-kill-with-arguments",
   ["ctrl+t"]             = "build:next-target",
+  ["ctrl+shift+t"]       = "build:select-target",
+  ["ctrl+alt+e"]         = "build:select-target-and-run",
+  ["ctrl+shift+alt+b"]   = "build:select-target-and-build",
   ["ctrl+shift+b"]       = "build:clean",
   ["f6"]                 = "build:toggle-drawer",
   ["escape"]             = "build:contextual-close-drawer"
