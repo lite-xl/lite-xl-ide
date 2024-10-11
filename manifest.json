@@ -1,7 +1,7 @@
 {
   "addons": [{
     "id": "build",
-    "version": "0.1",
+    "version": "0.2",
     "mod_version": "3",
     "description": "Provides a build system, messages window, and easily clickable errors. Supports an internal build system, and `make`. *([screenshot](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/build.png))*",
     "path": "plugins/build",
@@ -10,7 +10,7 @@
     }
   }, {
     "id": "debugger",
-    "version": "0.1",
+    "version": "0.2",
     "mod_version": "3",
     "description": "Provides a debugger integration, with pluggable backends. Currently supports only gdb. *([screenshot](https://raw.githubusercontent.com/adamharrison/lite-xl-ide/main/screenshots/debugger.png))*",
     "path": "plugins/debugger",
@@ -19,7 +19,7 @@
     }
   }, {
     "id": "ide",
-    "version": "0.1",
+    "version": "0.2",
     "mod_version": "3",
     "description": "A metapackage that provides the minimum functionalities for Lite XL to run as a minimal IDE.",
     "path": "plugins/ide.lua",
