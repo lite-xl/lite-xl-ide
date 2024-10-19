@@ -22,6 +22,7 @@
     "id": "ide",
     "version": "0.3",
     "description": "A metapackage that provides the minimum functionalities for Lite XL to run as a minimal IDE.",
+    "mod_version": "4",
     "path": "plugins/ide.lua",
     "dependencies": {
       "meta_colors": {},
