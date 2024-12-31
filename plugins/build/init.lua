@@ -31,6 +31,7 @@ local build = common.merge({
   warning_color = style.warn,
   good_color = style.good,
   drawer_size = 100,
+  max_previous_arguments = 100,
   on_success = "minimize",
   terminal = (PLATFORM == "Windows" and { os.getenv("COMSPEC") } or { "xterm", "-T", function(target) return target.name end, "-e" }),
   shell = (PLATFORM == "Windows" and "START /B" or { "bash", "-c" })
@@ -625,11 +626,12 @@ core.status_view:add_item({
         if i then
           config.target_binary = text:sub(1, i-1)
           config.target_binary_arguments = build.argument_string_to_table(text:sub(i+1))
-          table.insert(build.state.previous_arguments, { build.state.target, text:sub(i+1) })
         else
           config.target_binary = text
           config.target_binary_arguments = nil
         end
+        table.insert(build.state.previous_arguments, { build.state.target, i and text:sub(i+1) })
+        if #build.state.previous_arguments > build.max_previous_arguments then table.remove(build.state.previous_arguments, 1) end
         save_state()
       end
     })
@@ -728,7 +730,7 @@ end, {
         end
         if has then table.remove(build.state.previous_arguments, has) end
         table.insert(build.state.previous_arguments, { build.state.target, text })
-        if #build.state.previous_arguments > 100 then table.remove(build.state.previous_arguments, 1) end
+        if #build.state.previous_arguments > build.max_previous_arguments then table.remove(build.state.previous_arguments, 1) end
         save_state()
       end,
       suggest = function(text)
