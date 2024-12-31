@@ -146,7 +146,7 @@ config.plugins.debugger = common.merge({
   step_refresh_watches = true,
   hide_drawer_after = 3,
   interval = 0.01,
-  drawer_size = 100,
+  drawer_size = 200,
   hover_time_watch = 0.5,
   time_to_trigger_uninteractable_background = 0.1,
   hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
@@ -478,7 +478,7 @@ end
 
 
 function DebuggerStackView:draw()
-  self:draw_background(debugger:should_look_uninteractable() and style.dim or style.background3)
+  self:draw_background(((self.refreshing and #self.stack == 0) or debugger:should_look_uninteractable()) and style.dim or style.background3)
   if not core.root_project() then return end
   local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
@@ -510,7 +510,9 @@ function DebuggerStackView:draw()
 end
 
 function DebuggerStackView:refresh(on_finish)
+  self.refreshing = system.get_time()
   model:stacktrace(function(stack)
+    self.refreshing = nil
     self:set_stack(stack)
     if on_finish then
       on_finish(stack)
@@ -539,9 +541,9 @@ core.add_thread(function()
   local node = core.root_view:get_active_node()
   debugger.stack_view_node = node:split("down", debugger.stack_view, { y = true }, true)
   if debugger.terminal_view then
-    debugger.terminal_view_node = debugger.stack_view_node:split("right", debugger.terminal_view, { y = true }, true)
-    debugger.watch_variable_view_node = debugger.terminal_view_node:split("up", debugger.watch_variable_view, { y = true }, true)
-    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
+    debugger.terminal_view_node = debugger.stack_view_node:split("right", debugger.terminal_view, { y = false }, true)
+    debugger.watch_variable_view_node = debugger.terminal_view_node:split("up", debugger.watch_variable_view, { y = false }, true)
+    debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = false }, true)
   else
     debugger.watch_variable_view_node = debugger.stack_view_node:split("right", debugger.watch_variable_view, { y = true }, true)
     debugger.watch_result_view_node = debugger.watch_variable_view_node:split("right", debugger.watch_result_view, { y = true }, true)
