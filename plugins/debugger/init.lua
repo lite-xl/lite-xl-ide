@@ -148,6 +148,7 @@ config.plugins.debugger = common.merge({
   interval = 0.01,
   drawer_size = 100,
   hover_time_watch = 0.5,
+  time_to_trigger_uninteractable_background = 0.1,
   hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
   hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
   skip_files = { 
@@ -281,6 +282,22 @@ function DocView:draw()
   end
 end
 
+function debugger:should_look_uninteractable()
+  if model.state == "running" then
+    self.last_change_state = self.last_change_state or system.get_time()
+  elseif model.state == "starting" then
+    self.last_change_state = 0
+  else
+    self.last_change_state = nil
+  end
+  if self.last_change_state then
+    if system.get_time() - self.last_change_state > config.plugins.debugger.time_to_trigger_uninteractable_background then
+      return true
+    end
+    core.redraw = true
+  end
+  return false
+end
 
 local DebuggerWatchVariableDoc = Doc:extend()
 function DebuggerWatchVariableDoc:new()
@@ -301,7 +318,9 @@ function DebuggerWatchHalf:get_gutter_width() return 0 end
 function DebuggerWatchHalf:draw_line_gutter(idx, x, y) end
 function DebuggerWatchHalf:get_font() return style.debugger.font end
 function DebuggerWatchHalf:get_line_height() return style.debugger.font:get_height() + style.padding.y * 2 end
-function DebuggerWatchHalf:draw_background(color) DebuggerWatchHalf.super.draw_background(self, color or style.background3) end
+function DebuggerWatchHalf:draw_background(color) 
+  DebuggerWatchHalf.super.draw_background(self, debugger:should_look_uninteractable() and style.dim or style.background3)
+end
 
 function DebuggerWatchHalf:get_line_screen_position(line, col)
   local x, y = self:get_content_offset()
@@ -459,7 +478,7 @@ end
 
 
 function DebuggerStackView:draw()
-  self:draw_background(style.background3)
+  self:draw_background(debugger:should_look_uninteractable() and style.dim or style.background3)
   if not core.root_project() then return end
   local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
@@ -469,9 +488,9 @@ function DebuggerStackView:draw()
     local yoffset = i*item_height
     local y = oy + yoffset
     if y + h + style.padding.y*2 >= self.position.y and y < self.position.y + self.size.y then
-      if self.hovered_frame == i or (model.state ~= "running" and self.active_frame == i) then
+      if not debugger:should_look_uninteractable() and (self.hovered_frame == i or self.active_frame == i) then
         -- should be math.huge, but for some reason doesn't draw the rect.
-        renderer.draw_rect(ox, y, 1000000000, item_height, (self.active_frame == i and model.state ~= "running") and style.debugger.instruction or style.line_highlight)
+        renderer.draw_rect(ox, y, 1000000000, item_height, self.active_frame == i and style.debugger.instruction or style.line_highlight)
       end
       local tx = ox + style.padding.y
       tx = common.draw_text(style.debugger.font, style.accent, "#" .. i .. " ", "left", tx, oy + yoffset, 0, item_height)
@@ -575,7 +594,7 @@ end, {
 })
 
 command.add(function()
-  return config.target_binary and system.get_file_info(core.project_absolute_path(config.target_binary)) and model.state == "inactive"
+  return config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary)) and model.state == "inactive"
 end, {
   ["debugger:start"] = function()
     debugger.last_start_time = system.get_time()
@@ -595,10 +614,10 @@ end, {
 })
 
 command.add(function()
-  return config.target_binary and (system.get_file_info(core.project_absolute_path(config.target_binary)) or has_build) and model.state ~= "running"
+  return config.target_binary and (system.get_file_info(core.root_project():absolute_path(config.target_binary)) or has_build) and model.state ~= "running"
 end, {
   ["debugger:start-or-continue"] = function()
-    if not system.get_file_info(core.project_absolute_path(config.target_binary)) then
+    if not system.get_file_info(core.root_project():absolute_path(config.target_binary)) then
       command.perform("build:build")
     else
       command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")

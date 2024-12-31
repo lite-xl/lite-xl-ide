@@ -274,9 +274,9 @@ local function start(gdb, program_or_terminal, arguments, started, stopped, comp
   gdb.debugger_out = out
   gdb.running_thread = core.add_thread(function()
     if type(program_or_terminal) == "string" then
-      local args = { "gdb", "-q", "-nx", "--interpreter=mi3", "--args", core.project_absolute_path(program_or_terminal), table.unpack(arguments) }
+      local args = { "gdb", "-q", "-nx", "--interpreter=mi3", "--args", core.root_project():absolute_path(program_or_terminal), table.unpack(arguments) }
       core.log_quiet("Running " .. table.concat(args, " "))
-      gdb.running_program = process.start(args, { cwd = core.project_absolute_path(".") })
+      gdb.running_program = process.start(args, { cwd = core.root_project().path })
       gdb.waiting_on_result = function(type, category, attributes)
         gdb:cmd("set filename-display absolute")
         gdb:cmd("start")
