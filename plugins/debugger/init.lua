@@ -322,16 +322,6 @@ function DebuggerWatchHalf:draw_background(color)
   DebuggerWatchHalf.super.draw_background(self, debugger:should_look_uninteractable() and style.dim or style.background3)
 end
 
-function DebuggerWatchHalf:get_line_screen_position(line, col)
-  local x, y = self:get_content_offset()
-  local lh = self:get_line_height()
-  y = y + (line) * lh
-  if col then
-    return x + style.padding.x + self:get_col_x_offset(line, col), y
-  else
-    return x + style.padding.x, y
-  end
-end
 function DebuggerWatchHalf:update()
   local dest = debugger:should_show_drawer() and self.target_size or 0
   if self.init_size then
@@ -478,7 +468,7 @@ end
 
 
 function DebuggerStackView:draw()
-  self:draw_background(((self.refreshing and #self.stack == 0) or debugger:should_look_uninteractable()) and style.dim or style.background3)
+  self:draw_background(((self.refreshing and (#self.stack == 0 or system.get_time() - self.refreshing > config.plugins.debugger.time_to_trigger_uninteractable_background)) or debugger:should_look_uninteractable()) and style.dim or style.background3)
   if not core.root_project() then return end
   local h = style.debugger.font:get_height()
   local item_height = self:get_item_height()
