@@ -225,8 +225,8 @@ function build.run_tasks(tasks, on_done, on_line)
               for i,task in ipairs(bundle.tasks) do
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
-                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}), cwd = core.project_absolute_path(".") })
                   build.message_view:add_message(table.concat(task.cmd, " "))
+                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}), cwd = core.project_absolute_path(".") })
                   total_running = total_running + 1
                 end
               end
