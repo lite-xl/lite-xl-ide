@@ -26,7 +26,7 @@ Alternatively, if you don't have `lpm`, or don't want it, you can always pull th
 and simply copy the entire set of plugins into lite's plugin directory.
 
 ```bash
-git clone https://github.com/lite-xl/lite-xl-ide.git && cp -R lite-xl-ide/plugins ~/.config/lite-xl-/plugins
+git clone https://github.com/lite-xl/lite-xl-ide.git && cp -R lite-xl-ide/plugins/* ~/.config/lite-xl/plugins
 ```
 
 ## Plugins
