@@ -167,7 +167,7 @@ local function jump_to_file(file, line)
     local view = core.root_view:open_doc(core.open_doc(file))
     if line then
       view:scroll_to_line(line, true, true)
-      view.doc:set_selection(line, 1, line, 1)
+      view:set_selection(line, 1, line, 1)
     end
   end
 end
@@ -343,6 +343,13 @@ function DebuggerWatchHalf:draw_line_body(idx, x, y)
   return DebuggerWatchHalf.super.draw_line_body(self, idx, x, y)
 end
 
+function DebuggerWatchHalf:resolve_screen_position(x, y)
+  return DebuggerWatchHalf.super.resolve_screen_position(self, x, y - self:get_line_height())
+end
+function DebuggerWatchHalf:get_line_screen_position(line, col)
+  local x,y = DebuggerWatchHalf.super.get_line_screen_position(self, line, col)
+  return x,y + self:get_line_height()
+end
 
 function DebuggerWatchHalf:draw()
   DebuggerWatchHalf.super.draw(self)
@@ -359,15 +366,16 @@ function DebuggerWatchResultView:refresh(idx)
   local lines = debugger.watch_variable_view.doc.lines
   local total_lines = lines[1]:find("%S") and #lines or 0
   if idx then
-    self.doc.lines[idx] = "\n"
+    self.doc:remove(i, 1, i, #self.doc.lines[i])
   else
-    self.doc.lines[total_lines+1] = ''
+    self.doc:insert(total_lines+1, 1, '')
   end
   for i = 1, #lines do
     if not idx or idx == i then
       if lines[i]:find("%S") and model.state == "stopped" then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
-          self.doc.lines[i] = value or "undefined"
+          self.doc:remove(i, 1, i, #self.doc.lines[i])
+          self.doc:insert(i, 1, value or "undefined")
         end)
       else
         self.doc.lines[i] = ""
@@ -375,10 +383,10 @@ function DebuggerWatchResultView:refresh(idx)
     end
   end
   if lines[#lines] ~= "\n" then
-    lines[#lines + 1] = "\n"
+    debugger.watch_variable_view.doc:insert(#lines + 1, 1, "\n")
   end
-  while #self.doc.lines > #lines do
-    table.remove(self.doc.lines)
+  if #self.doc.lines > #lines then
+    self.doc:remove(#lines, 1, #self.doc.lines, self.doc.lines[#self.doc.lines])
   end
 end
 
@@ -758,6 +766,5 @@ if has_build then
   build.build_bar_view.toolbar_commands[2] = { symbol = '"', command = "debugger:start-or-continue"}
   build.build_bar_view.toolbar_commands[4] = { symbol = '$', command = "debugger:terminate"}
 end
-
 
 return debugger
