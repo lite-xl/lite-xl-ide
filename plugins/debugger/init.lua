@@ -211,8 +211,9 @@ function debugger:should_show_drawer()
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
+  if docview_on_mouse_pressed(self, button, x, y, clicks) then return true end
   if self.hovering_gutter then return command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) end
-  return docview_on_mouse_pressed(self, button, x, y, clicks)
+  return false
 end
 
 function DocView:on_mouse_moved(x, y, ...)
