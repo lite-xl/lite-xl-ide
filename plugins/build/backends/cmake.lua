@@ -4,11 +4,7 @@ local build = require "plugins.build"
 local config = require "core.config"
 local json = require "libraries.json"
 
-local cmake = {
-  -- ninja executes from inside a build folder, so all file references begin with `..`, and should be removed to reference the file.
-  error_pattern = "^%s*%.%./([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
-  file_pattern = "^%s*%.%./([^:]+):(%d+):(%d*):? (.+)",
-}
+local cmake = {}
 
 local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i) then table.insert(nt, v) end end return nt end
 
@@ -21,15 +17,6 @@ function cmake.infer()
     { name = "debug" },
     { name = "release", buildtype = "release" }
   }
-end
-
-function cmake.parse_compile_line(line)
-  local _, _, file, line_number, column, type, message = line:find(cmake.error_pattern)
-  if file and (type == "warning" or type == "error") then
-    return { type, file, line_number, column, message }
-  end
-  local _, _, file, line_number, column, message = line:find(cmake.file_pattern)
-  return file and { "info", file, line_number, (column or 1), message } or line
 end
 
 local function run_command(args)
@@ -55,7 +42,7 @@ function cmake.build(target, callback)
       local filtered_messages = grep(build.message_view.messages, function(v) return type(v) == 'table' and v[1] == "error" end)
       if callback then callback(status == 0 and #filtered_messages or 1) end
     end, function(line)
-      build.message_view:add_message(cmake.parse_compile_line(line))
+      build.message_view:add_message(build.parse_compile_line(line))
     end)
   end
 
