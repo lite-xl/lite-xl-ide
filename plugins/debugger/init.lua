@@ -630,7 +630,7 @@ command.add(function()
   return core.active_view and core.active_view.doc
 end, {
   ["debugger:toggle-line-breakpoint"] = function(line)
-    if not line then line = core.active_view.doc:get_selection(true) end
+    if not line then line = core.active_view:get_selection(true) end
     if line then
       local file = core.active_view.doc.abs_filename
       if not model:has_breakpoint(file, line) then

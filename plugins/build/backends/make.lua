@@ -7,7 +7,7 @@ local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i)
 
 
 function make.infer()
-  return system.get_file_info("Makefile") and { name = "all" }
+  return system.get_file_info(core.projects[1].path .. PATHSEP .. "Makefile") and { name = "all" }
 end
 
 function make.build(target, callback)

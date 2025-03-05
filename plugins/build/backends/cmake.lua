@@ -4,7 +4,7 @@ local build = require "plugins.build"
 local config = require "core.config"
 local json = require "libraries.json"
 
-local meson = {
+local cmake = {
   -- ninja executes from inside a build folder, so all file references begin with `..`, and should be removed to reference the file.
   error_pattern = "^%s*%.%./([^:]+):(%d+):(%d*):? %[?(%w*)%]?:? (.+)",
   file_pattern = "^%s*%.%./([^:]+):(%d+):(%d*):? (.+)",
@@ -16,19 +16,19 @@ local function get_build_directory(target)
   return core.projects[1].path .. PATHSEP .. (target.build_directory or ("build-" .. target.name:lower():gsub("%W+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")))
 end
 
-function meson.infer()
-  return system.get_file_info(core.projects[1].path .. PATHSEP .. "meson.build") and {
+function cmake.infer()
+  return system.get_file_info(core.projects[1].path .. PATHSEP .. "CMakeLists.txt") and {
     { name = "debug" },
     { name = "release", buildtype = "release" }
   }
 end
 
-function meson.parse_compile_line(line)
-  local _, _, file, line_number, column, type, message = line:find(meson.error_pattern)
+function cmake.parse_compile_line(line)
+  local _, _, file, line_number, column, type, message = line:find(cmake.error_pattern)
   if file and (type == "warning" or type == "error") then
     return { type, file, line_number, column, message }
   end
-  local _, _, file, line_number, column, message = line:find(meson.file_pattern)
+  local _, _, file, line_number, column, message = line:find(cmake.file_pattern)
   return file and { "info", file, line_number, (column or 1), message } or line
 end
 
@@ -46,56 +46,42 @@ local function run_command(args)
   return accumulator
 end
 
-function meson.build(target, callback)
+function cmake.build(target, callback)
   local bd = get_build_directory(target)
   local tasks = { }
 
-  local ninja_build = function()
-    build.run_tasks({ { "ninja", "-C", bd } }, function(status)
+  local make_build = function()
+    build.run_tasks({ { "make", "-C", bd, "-j", build.threads } }, function(status)
       local filtered_messages = grep(build.message_view.messages, function(v) return type(v) == 'table' and v[1] == "error" end)
       if callback then callback(status == 0 and #filtered_messages or 1) end
     end, function(line)
-      build.message_view:add_message(meson.parse_compile_line(line))
+      build.message_view:add_message(cmake.parse_compile_line(line))
     end)
   end
 
-  local check_executables = function()
-    local info = json.decode(run_command({ "meson", "introspect", bd, "-a" }))
-    -- find an executable that is built by default
-    for i,v in ipairs(info.targets) do
-      if v.build_by_default and v.type == "executable" and v.filename then
-        target.binary = v.filename[1]
-        config.target_binary = target.binary
-        target.wd = common.dirname(target.binary)
-      end
-    end
-    target.checked = true
-  end
-
   if not system.get_file_info(bd) then
-    build.run_tasks({ { "meson", "setup", bd, "--buildtype", target.buildtype or "debug" } }, function(status)
+    common.mkdirp(bd)
+    build.run_tasks({ { "cmake", "-B" .. bd, "-S" .. core.projects[1].path, "-DCMAKE_BUILD_TYPE=" .. (target.buildtype or "debug") } }, function(status)
       core.add_thread(function()
-        check_executables()
-        ninja_build()
+        make_build()
       end)
     end)
   else
     if not target.checked then
       core.add_thread(function()
-        check_executables()
-        ninja_build()
+        make_build()
       end)
     else
-      ninja_build()
+      make_build()
     end
   end
 end
 
 
-function meson.clean(target, callback)
+function cmake.clean(target, callback)
   if system.get_file_info(get_build_directory(target)) then common.rm(get_build_directory(target), true) end
   callback(0)
 end
 
 
-return meson
+return cmake
