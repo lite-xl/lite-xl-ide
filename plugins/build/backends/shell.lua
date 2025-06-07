@@ -4,7 +4,7 @@ local build = require "plugins.build"
 local shell = { }
 
 function shell.infer()
-  return system.get_file_info(core.projects[1].path .. PATHSEP .. "build.sh") and {
+  return system.get_file_info(core.root_project().path .. PATHSEP .. "build.sh") and {
     { name = "debug", arguments = { "-g" } },
     { name = "release" }
   }
