@@ -13,11 +13,11 @@ local meson = {
 local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i) then table.insert(nt, v) end end return nt end
 
 local function get_build_directory(target)
-  return core.projects[1].path .. PATHSEP .. (target.build_directory or ("build-" .. target.name:lower():gsub("%W+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")))
+  return core.root_project().path .. PATHSEP .. (target.build_directory or ("build-" .. target.name:lower():gsub("%W+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")))
 end
 
 function meson.infer()
-  return system.get_file_info(core.projects[1].path .. PATHSEP .. "meson.build") and {
+  return system.get_file_info(core.root_project().path .. PATHSEP .. "meson.build") and {
     { name = "debug" },
     { name = "release", buildtype = "release" }
   }

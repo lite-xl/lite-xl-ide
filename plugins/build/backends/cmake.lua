@@ -9,11 +9,11 @@ local cmake = {}
 local function grep(t, cond) local nt = {} for i,v in ipairs(t) do if cond(v, i) then table.insert(nt, v) end end return nt end
 
 local function get_build_directory(target)
-  return core.projects[1].path .. PATHSEP .. (target.build_directory or ("build-" .. target.name:lower():gsub("%W+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")))
+  return core.root_project().path .. PATHSEP .. (target.build_directory or ("build-" .. target.name:lower():gsub("%W+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")))
 end
 
 function cmake.infer()
-  return system.get_file_info(core.projects[1].path .. PATHSEP .. "CMakeLists.txt") and {
+  return system.get_file_info(core.root_project().path .. PATHSEP .. "CMakeLists.txt") and {
     { name = "debug" },
     { name = "release", buildtype = "release" }
   }
@@ -48,7 +48,7 @@ function cmake.build(target, callback)
 
   if not system.get_file_info(bd) then
     common.mkdirp(bd)
-    build.run_tasks({ { "cmake", "-B" .. bd, "-S" .. core.projects[1].path, "-DCMAKE_BUILD_TYPE=" .. (target.buildtype or "debug") } }, function(status)
+    build.run_tasks({ { "cmake", "-B" .. bd, "-S" .. core.root_project().path, "-DCMAKE_BUILD_TYPE=" .. (target.buildtype or "debug") } }, function(status)
       core.add_thread(function()
         make_build()
       end)
