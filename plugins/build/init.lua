@@ -1,16 +1,47 @@
--- mod-version:4 -- lite-xl 2.1
+-- mod-version:4
 local core = require "core"
 local command = require "core.command"
 local keymap = require "core.keymap"
 local config = require "core.config"
 local common = require "core.common"
 local style = require "core.style"
-local storage = require "core.storage"
 local View = require "core.view"
 local DocView = require "core.docview"
 local StatusView = require "core.statusview"
 local TreeView = config.plugins.treeview ~= false and require "plugins.treeview"
 local ToolbarView = require "plugins.toolbarview"
+
+
+local storage 
+if rawget(_G, "MOD_VERSION_MAJOR") == 4 then
+  storage = require "core.storage"
+else
+  storage = {}
+  function storage.load(module, key)
+    local f = io.open(USERDIR .. PATHSEP .. module .. "-" .. key .. ".state", "rb")
+    return f and load("return " .. f:read("*all"))()
+  end
+  function storage.save(module, key, value)
+    io.open(USERDIR .. PATHSEP .. module .. "-".. key .. ".state", "wb"):write(common.serialize(value)):close()
+  end
+  if not core.root_project then
+    local root_project = {
+      path = core.project_dir,
+      absolute_path = function(self, path)
+        return core.project_absolute_path(path)
+      end,
+      normalize_path = function(self, path)
+        return common.normalize_path(path)
+      end,
+      get_file_info = function(self, path)
+        return system.get_file_info(path)
+      end
+    }
+    function core.root_project()
+      return root_project
+    end
+  end
+end
 
 local build = common.merge({
   targets = { },
@@ -111,6 +142,7 @@ local function split(splitter, str)
   end
   return res
 end
+
 
 build.state = storage.load("build", "state") or { previous_arguments = {}, target = 1 }
 local function save_state()

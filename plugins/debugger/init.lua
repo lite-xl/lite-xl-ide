@@ -1,4 +1,4 @@
--- mod-version:4 -- lite-xl 3.0
+-- mod-version:4
 
 
 --[[
@@ -105,7 +105,6 @@ local style  = require "core.style"
 local config  = require "core.config"
 local tokenizer = require "core.tokenizer"
 local syntax = require "core.syntax"
-local storage = require "core.storage"
 local View = require "core.view"
 local StatusView = require "core.statusview"
 
@@ -118,6 +117,42 @@ local draw_line_text = DocView.draw_line_text
 local docview_draw = DocView.draw
 local docview_update = DocView.update
 
+-- This bit is for compatiblity between mod-version 3 and 4.
+local storage 
+local get_selection, set_selection
+if rawget(_G, "MOD_VERSION_MAJOR") == 4 then
+  storage = require "core.storage"
+  get_selection = function(view, ...) return view:get_selection(...) end
+  set_selection = function(view, ...) return view:set_selection(...) end
+else
+  storage = {}
+  function storage.load(module, key)
+    local f = io.open(USERDIR .. PATHSEP .. module .. "-" .. key .. ".state", "rb")
+    return f and load("return " .. f:read("*all"))()
+  end
+  function storage.save(module, key, value)
+    io.open(USERDIR .. PATHSEP .. module .. "-" .. key .. ".state", "wb"):write(common.serialize(value)):close()
+  end
+  if not core.root_project then
+    local root_project = {
+      path = core.project_dir,
+      absolute_path = function(self, path)
+        return core.project_absolute_path(path)
+      end,
+      normalize_path = function(self, path)
+        return common.normalize_path(path)
+      end,
+      get_file_info = function(self, path)
+        return system.get_file_info(path)
+      end
+    }
+    function core.root_project()
+      return root_project
+    end
+  end
+  get_selection = function(view, ...) return view.doc:get_selection(...) end
+  set_selection = function(view, ...) return view.doc:set_selection(...) end
+end
 
 local debugger = {
   drawer_visible = nil,
@@ -167,7 +202,7 @@ local function jump_to_file(file, line)
     local view = core.root_view:open_doc(core.open_doc(file))
     if line then
       view:scroll_to_line(line, true, true)
-      view:set_selection(line, 1, line, 1)
+      set_selection(view, line, 1, line, 1)
     end
   end
 end
@@ -211,9 +246,10 @@ function debugger:should_show_drawer()
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
-  if docview_on_mouse_pressed(self, button, x, y, clicks) then return true end
-  if self.hovering_gutter then return command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) end
-  return false
+  if self.hovering_gutter and command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) then 
+    return true 
+  end
+  return docview_on_mouse_pressed(self, button, x, y, clicks)
 end
 
 function DocView:on_mouse_moved(x, y, ...)
@@ -225,12 +261,13 @@ function DocView:on_mouse_moved(x, y, ...)
   local _, docy = self:get_line_screen_position(minline)
   if x > self.position.x and x < self.position.x + self:get_gutter_width() then
     self.cursor = "arrow"
-    self.hovering_gutter = self:get_dline(minline + math.floor((y - docy) / self:get_line_height()))
+    local line = minline + math.floor((y - docy) / self:get_line_height())
+    self.hovering_gutter = self.get_dline and self:get_dline(line) or line
   end
 end
 
 function DocView:draw_line_gutter(vline, x, y, width)
-  local idx = self:get_dline(vline)
+  local idx = self.get_dline and self:get_dline(vline) or vline
   if model:has_breakpoint(self.doc.abs_filename, idx) then
     renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger.breakpoint)
   end
@@ -376,7 +413,7 @@ function DebuggerWatchResultView:refresh(idx)
     if not idx or idx == i then
       if lines[i]:find("%S") and model.state == "stopped" then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
-          self.doc:remove(i, 1, i, #self.doc.lines[i])
+          self.doc:remove(i, 1, i, self.doc.lines[i] and #self.doc.lines[i] or 1)
           self.doc:insert(i, 1, value or "undefined")
         end)
       else
@@ -388,7 +425,7 @@ function DebuggerWatchResultView:refresh(idx)
     debugger.watch_variable_view.doc:insert(#lines + 1, 1, "\n")
   end
   if #self.doc.lines > #lines then
-    self.doc:remove(#lines, 1, #self.doc.lines, self.doc.lines[#self.doc.lines])
+    self.doc:remove(#lines, 1, #self.doc.lines, #self.doc.lines[#self.doc.lines])
   end
 end
 
@@ -631,7 +668,7 @@ command.add(function()
   return core.active_view and core.active_view.doc
 end, {
   ["debugger:toggle-line-breakpoint"] = function(line)
-    if not line then line = core.active_view:get_selection(true) end
+    if not line then line = get_selection(core.active_view, true) end
     if line then
       local file = core.active_view.doc.abs_filename
       if not model:has_breakpoint(file, line) then
