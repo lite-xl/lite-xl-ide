@@ -225,18 +225,19 @@ function DocView:on_mouse_moved(x, y, ...)
   local _, docy = self:get_line_screen_position(minline)
   if x > self.position.x and x < self.position.x + self:get_gutter_width() then
     self.cursor = "arrow"
-    self.hovering_gutter = minline + math.floor((y - docy) / self:get_line_height())
+    self.hovering_gutter = self:get_dline(minline + math.floor((y - docy) / self:get_line_height()))
   end
 end
 
-function DocView:draw_line_gutter(idx, x, y, width)
-   if model:has_breakpoint(self.doc.abs_filename, idx) then
-     renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger.breakpoint)
-   end
-   if model.state == "stopped" and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
-     renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger.instruction)
-   end
-  draw_line_gutter(self, idx, x, y, width)
+function DocView:draw_line_gutter(vline, x, y, width)
+  local idx = self:get_dline(vline)
+  if model:has_breakpoint(self.doc.abs_filename, idx) then
+    renderer.draw_rect(x, y, self:get_gutter_width(), self:get_line_height(), style.debugger.breakpoint)
+  end
+  if model.state == "stopped" and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
+    renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger.instruction)
+  end
+  draw_line_gutter(self, vline, x, y, width)
 end
 
 function DocView:update()
@@ -263,13 +264,13 @@ function DocView:update()
 end
 
 
-function DocView:draw_line_text(line, x, y)
-  if self.watch_token and self.watch_token[1] == line then
-    local x1, y = self:get_line_screen_position(line, self.watch_token[2])
-    local x2 = self:get_line_screen_position(line, self.watch_token[3] + 1)
+function DocView:draw_line_text(vline, x, y)
+  if self.watch_token and self.watch_token[1] == vline then
+    local x1, y = self:get_line_screen_position(vline, self.watch_token[2])
+    local x2 = self:get_line_screen_position(vline, self.watch_token[3] + 1)
     renderer.draw_rect(x1, y, x2 - x1, self:get_line_height(), style.text)
   end
-  return draw_line_text(self, line, x, y)
+  return draw_line_text(self, vline, x, y)
 end
 
 function DocView:draw()

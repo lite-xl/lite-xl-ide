@@ -126,7 +126,7 @@ local function jump_to_file(file, line, col)
         local view = core.root_view:open_doc(core.open_doc(file))
         if line then
           view:scroll_to_line(math.max(1, line - 20), true)
-          view.doc:set_selection(line, col or 1, line, col or 1)
+          view:set_selection(line, col or 1, line, col or 1)
         end
         break
       end
@@ -815,7 +815,16 @@ core.add_thread(function()
     table.sort(backends, function(a,b) return (a.priority or 0) < (b.priority or 0) end)
     local targets = {}
     for _, backend in ipairs(backends) do
-      for _, target in ipairs(backend.infer and backend.infer() or {}) do
+      if backend.id ~= "internal" then
+        for _, target in ipairs(backend.infer and backend.infer() or {}) do
+          target.backend = backend
+          table.insert(targets, target)
+        end
+      end
+    end
+    if #targets == 0 then
+      local internal = build.get_backends("internal")
+      for _, target in ipairs(internal.infer() or {}) do
         target.backend = backend
         table.insert(targets, target)
       end
