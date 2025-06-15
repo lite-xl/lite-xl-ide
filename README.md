@@ -51,7 +51,7 @@ To explicitly use a speicifc build system with a set of build targets, you shoul
 
 When adding build targets, they broadly look like this:
 
-```
+```lua
 config.plugins.build.targets = {
 	{ name = "debug", binary = "bin/debug-binary" },
 	{ name = "release", binary = "bin/release-binary" }
@@ -110,15 +110,28 @@ config.plugins.build.targets = {
 config.plugins.build.type = "internal"
 ```
 
-`type`: is your type of build; valid values are `executable`, `static` or `shared`.
-`ignored_files`: will ignore any file that matches the pattern based on the normal ignore syntax.
-`files`: will take specific files and add them to the compile with override options based on any of these other options
-`cflags`: will specify compile time flags.
-`ldflags`: will specify link time flags
-`cc`: will specify your c compiler
-`cxx`: will specify your c++ compiler
-`ar`: specifies your archiver
-`ld`: specifies your linker
+* `type`: is your type of build; valid values are `executable`, `static` or `shared`.
+* `ignored_files`: will ignore any file that matches the pattern based on the normal ignore syntax.
+* `files`: will take specific files and add them to the compile with override options based on any of these other options
+* `cflags`: will specify compile time flags.
+* `ldflags`: will specify link time flags
+* `cc`: will specify your c compiler
+* `cxx`: will specify your c++ compiler
+* `ar`: specifies your archiver
+* `ld`: specifies your linker
+
+##### shell
+
+The shell build system lets you specify a custom command, which will run upon building.
+
+```lua
+config.plugins.build.targets = {
+	{ name = "debug", binary = "bin/debug-binary", command = "make", arguments = { "debug" } },
+	{ name = "release", binary = "bin/release-binary", command = "make", arguments = { "release" } }
+}
+config.plugins.build.type = "shell"
+```
+
 
 ### Debugger
 

@@ -322,9 +322,14 @@ function build.build(callback)
       build.output(line)
       build.message_view.scroll.to.y = 0
       if status == 0 and build.on_success == "minimize" then build.message_view.minimized = true end
+      build.thread = nil
+      if callback then callback(status) end
     end)
   end)
-  if not status then build.message_view:add_message({ "error", err }) end
+  if not status then
+    build.message_view:add_message({ "error", err }) 
+    if callback then callback(-1, err) end
+  end
 end
 
 function build.escape_arguments(arguments)
@@ -705,6 +710,20 @@ end, {
       build.build()
     end
   end,
+  ["build:build-and-run"] = function(arguments)
+    for i,v in ipairs(core.docs) do
+      if v:is_dirty() and v.filename and v.abs_filename then
+        v:save()
+      end
+    end
+    if #build.targets > 0 then
+      build.build(function(status)
+        if status == 0 then
+          build.run(arguments)
+        end
+      end)
+    end
+  end,
   ["build:rebuild"] = function()
     build.clean(function()
       if #build.targets > 0 then
@@ -827,6 +846,7 @@ end, {
 keymap.add {
   ["lclick"]             = { "build:toggle-minimize", "build:jump-to-hovered" },
   ["ctrl+b"]             = { "build:build", "build:terminate" },
+  ["alt+b"]         = "build:build-and-run",
   ["ctrl+alt+b"]         = "build:rebuild",
   ["ctrl+e"]             = "build:run-or-term-or-kill",
   ["ctrl+shift+e"]       = "build:run-or-term-or-kill-with-arguments",
