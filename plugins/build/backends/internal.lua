@@ -14,7 +14,8 @@ local build = require "plugins.build"
 -- `cc` will specify your c compiler
 -- `cxx` will specify your c++ compiler
 -- `ar` specifies your archiver
--- { name = string, cc = "gcc", cxx = "g++", ar = "ar", binary = path, ignored_files = { "src/api.c" }, cflags = string, ldflags = string, files = {}, obj = path, src = "." }
+-- `srcs` specifies the folders where your source is located.
+-- { name = string, cc = "gcc", cxx = "g++", ar = "ar", binary = path, ignored_files = { "src/api.c" }, cflags = string, ldflags = string, files = {}, obj = path, srcs = { "." } }
 
 if not config.plugins.build.internal then config.plugins.build.internal = {} end
 local internal = common.merge({
@@ -58,6 +59,7 @@ local function get_compiler(target, path)
   return nil
 end
 local function get_archiver(target) return get_field(target, nil, "ar") end
+local function get_linker(target) return get_field(target, nil, "ld") end
 
 local function get_source_files(target)
   local files = {}
@@ -143,18 +145,18 @@ function internal.build(target, callback)
       if status ~= 0 then if callback then callback(status) end return end
       local link_job = {}
       local type = get_type(target)
-      local compiler = has_cpp and split(get_field(target, nil, "cxx"), "%s+") or split(get_field(target, nil, "cc"), "%s+")
+      local linker = get_linker(target) or (has_cpp and split(get_field(target, nil, "cxx"), "%s+") or split(get_field(target, nil, "cc"), "%s+"))
       local binary = get_binary(target)
       local binary_stat = system.get_file_info(binary)
       if not binary_stat or #compile_jobs > 0 or (max_ostat and binary_stat.modified < max_ostat) then
         local binary_folder = common.dirname(binary)
         if binary_folder then common.mkdirp(binary_folder) end
         if not type or type == "executable" then
-          link_job = table_concat(compiler, { "-o", binary })
+          link_job = table_concat(linker, { "-o", binary })
         elseif type == "static" then
           link_job = { get_archiver(target), "-r", "-s", binary }
         elseif type == "shared" then
-          link_job = table_concat(compiler, { "-shared", "-o", binary })
+          link_job = table_concat(linker, { "-shared", "-o", binary })
         end
         for i, object in ipairs(objects) do table.insert(link_job, object) end
         for i, ldflag in ipairs(get_ldflags(target) or {}) do table.insert(link_job, ldflag) end
