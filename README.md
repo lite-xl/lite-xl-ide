@@ -46,7 +46,7 @@ and run all the compile commands directly.
 
 #### Build Targets
 
-To explicitly use a speicifc build system with a set of build targets, you should place the configuration for these modules in your
+To explicitly use a specific build system with a set of build targets, you should place the configuration for these modules in your
 [lite-xl project module](https://lite-xl.com/user-guide/configuration/#project-module), which can be opened with `Core: Open Project Module`.
 
 When adding build targets, they broadly look like this:
