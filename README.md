@@ -29,6 +29,10 @@ and simply copy the entire set of plugins into lite's plugin directory.
 git clone https://github.com/lite-xl/lite-xl-ide.git && cp -R lite-xl-ide/plugins ~/.config/lite-xl-/plugins
 ```
 
+By default, `ide` should try and figure out what your build system is and activate the appropriate build system module.
+However, in many cases, the build system cannot infer your build targets, so you'll want to manually set them up,
+as specified below in the [build targets](#build-targets) section.
+
 ## Plugins
 
 ### Build
@@ -36,14 +40,85 @@ git clone https://github.com/lite-xl/lite-xl-ide.git && cp -R lite-xl-ide/plugin
 The build plugin is a flexible build system. It can be configured to either use `make`, or, it can take over entirely
 and run all the compile commands directly.
 
-* Support for `make`.
+* Support for `make`, `cmake`, `meson`, a shell command, or the default interal build system.
 * Support for internal building if configured with an appropriate compiler frontend. (`gcc` or `clang`).
 * Support for executing binary in an external terminal.
 
-#### TODO
+#### Build Targets
 
-* Persist settings to disk for current target, and binary arguments.
-* Present recent list of targets/arguments as suggestions.
+To explicitly use a speicifc build system with a set of build targets, you should place the configuration for these modules in your
+[lite-xl project module](https://lite-xl.com/user-guide/configuration/#project-module), which can be opened with `Core: Open Project Module`.
+
+When adding build targets, they broadly look like this:
+
+```
+config.plugins.build.targets = {
+	{ name = "debug", binary = "bin/debug-binary" },
+	{ name = "release", binary = "bin/release-binary" }
+}
+```
+
+This will set up two build targets, which can be toggled between with `ctrl+t`.
+
+Each build system will allow for different arguments, but the two most important are `name` and `binary` (if applicable).
+
+##### make
+
+To explicitly use a makefile with a set of build targets, you should put the following in your lite-xl project module. 
+
+```lua
+config.plugins.build.targets = {
+	{ name = "debug", binary = "bin/debug-binary" },
+	{ name = "release", binary = "bin/release-binary" }
+}
+config.plugins.build.type = "make"
+```
+
+##### cmake
+
+To explicitly use a CMakeLists file, with a set of build targets, you should put the following in your lite-xl project module.
+
+```lua
+config.plugins.build.targets = {
+	{ name = "debug", buildtype = "debug", binary = "bin/debug-binary" },
+	{ name = "release", buildtype = "release", binary = "bin/release-binary" }
+}
+config.plugins.build.type = "cmake"
+```
+
+##### meson
+
+To explicitly use a meson.build file, with a set of build targets, you should put the following in your lite-xl project module.
+
+```lua
+config.plugins.build.targets = {
+	{ name = "debug", buildtype = "debug", binary = "bin/debug-binary" },
+	{ name = "release", buildtype = "release", binary = "bin/release-binary" }
+}
+config.plugins.build.type = "meson"
+```
+
+##### internal
+
+The internal build system allows you to set a source directory, compiler flags, a compiler, a linker, etc.. for a C/C++ project.
+
+```lua
+config.plugins.build.targets = {
+	{ name = "debug", binary = "bin/debug-binary", type = "executable", src = "src" },
+	{ name = "release", binary = "bin/release-binary", type = "executable", src = "src" }
+}
+config.plugins.build.type = "internal"
+```
+
+`type`: is your type of build; valid values are `executable`, `static` or `shared`.
+`ignored_files`: will ignore any file that matches the pattern based on the normal ignore syntax.
+`files`: will take specific files and add them to the compile with override options based on any of these other options
+`cflags`: will specify compile time flags.
+`ldflags`: will specify link time flags
+`cc`: will specify your c compiler
+`cxx`: will specify your c++ compiler
+`ar`: specifies your archiver
+`ld`: specifies your linker
 
 ### Debugger
 
