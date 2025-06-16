@@ -11,7 +11,7 @@ function make.infer()
 end
 
 function make.build(target, callback)
-  build.run_tasks({ { "make", target.name, "-j", build.threads } }, function(status)
+  build.run_tasks({ { "make", target.name, "-j", tostring(build.threads) } }, function(status)
     local filtered_messages = grep(build.message_view.messages, function(v) return type(v) == 'table' and v[1] == "error" end)
     if callback then callback(status == 0 and #filtered_messages or 1) end
   end)
