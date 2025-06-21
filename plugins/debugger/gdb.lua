@@ -198,7 +198,6 @@ function gdb:loop()
   local result = self.running_program and self.running_program:read_stdout()
   if result == nil then return false end
   if #result > 0 then
-    print(result)
     self.saved_result = self.saved_result .. result
     if config.plugins.debugger.debug then io.open("debugger.out", "ab"):write(result):close() end
     while #self.saved_result > 0 do
