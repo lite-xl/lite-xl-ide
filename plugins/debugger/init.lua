@@ -385,9 +385,17 @@ end
 function DebuggerWatchHalf:resolve_screen_position(x, y)
   return DebuggerWatchHalf.super.resolve_screen_position(self, x, y - self:get_line_height())
 end
-function DebuggerWatchHalf:get_line_screen_position(line, col)
-  local x,y = DebuggerWatchHalf.super.get_line_screen_position(self, line, col)
-  return x,y + self:get_line_height()
+
+if rawget(_G, "MOD_VERSION_MAJOR") == 4 then
+  function DebuggerWatchHalf:get_vline_position(line, col)
+    local x,y = DebuggerWatchHalf.super.get_vline_position(self, line, col)
+    return x,y + self:get_line_height()
+  end
+else
+  function DebuggerWatchHalf:get_line_screen_position(line, col)
+    local x,y = DebuggerWatchHalf.super.get_line_screen_position(self, line, col)
+    return x,y + self:get_line_height()
+  end
 end
 
 function DebuggerWatchHalf:draw()
