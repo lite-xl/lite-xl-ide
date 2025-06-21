@@ -245,6 +245,16 @@ function debugger:should_show_drawer()
   return self.drawer_visible == true or (self.drawer_visible == nil and model.state ~= "inactive" or (system.get_time() - debugger.last_exited) < (config.plugins.debugger.hide_drawer_after or 0))
 end
 
+function debugger:get_hovering_token(docview, line, col)
+  local _, s = docview.doc.lines[line]:reverse():find(config.plugins.debugger.hover_symbol_pattern_backward, #docview.doc.lines[line] - col - 1)
+  if s and not docview.doc.lines[line]:sub(col, col):find("[=%s%[%(]") then
+    local _, e = docview.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
+    s, e = #docview.doc.lines[line] - s + 1, e or col
+    local token = docview.doc.lines[line]:sub(s, e):gsub("\n$", "")
+    return token, line, s, line, e
+  end
+end
+
 function DocView:on_mouse_pressed(button, x, y, clicks)
   if self.hovering_gutter and command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) then 
     return true 
@@ -283,17 +293,14 @@ function DocView:update()
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
-    local _, s = self.doc.lines[line]:reverse():find(config.plugins.debugger.hover_symbol_pattern_backward, #self.doc.lines[line] - col - 1)
-    if s and not self.doc.lines[line]:sub(col, col):find("[=%s%[%(]") then
-      local _, e = self.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
-      s, e = #self.doc.lines[line] - s + 1, e or col
-      local token = self.doc.lines[line]:sub(s, e):gsub("\n$", "")
+    local token, line1, col1, line2, col2 = debugger:get_hovering_token(self, line, col)
+    if token then
       if #token > 0 and not self.watch_token then
         model:variable(token, function(result)
           self.watch_hover_value = result
         end)
       end
-      self.watch_token = { line, s, e }
+      self.watch_token = { line1, col1, col2 }
     else
       self.watch_token = false
     end
@@ -422,10 +429,10 @@ function DebuggerWatchResultView:refresh(idx)
       if lines[i]:find("%S") and model.state == "stopped" then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
           self.doc:remove(i, 1, i, self.doc.lines[i] and #self.doc.lines[i] or 1)
-          self.doc:insert(i, 1, (value or "undefined") .. "\n")
+          self.doc:insert(i, 1, (value or "undefined") .. (i == #self.doc.lines and "\n" or ""))
         end)
       else
-        self.doc.lines[i] = "\n"
+        self.doc:remove(i, 1, i, self.doc.lines[i] and #self.doc.lines[i] or 1)
       end
     end
   end
