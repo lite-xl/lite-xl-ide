@@ -422,10 +422,10 @@ function DebuggerWatchResultView:refresh(idx)
       if lines[i]:find("%S") and model.state == "stopped" then
         model:variable(lines[i]:gsub("\n$", ""), function(value)
           self.doc:remove(i, 1, i, self.doc.lines[i] and #self.doc.lines[i] or 1)
-          self.doc:insert(i, 1, value or "undefined")
+          self.doc:insert(i, 1, (value or "undefined") .. "\n")
         end)
       else
-        self.doc.lines[i] = ""
+        self.doc.lines[i] = "\n"
       end
     end
   end
