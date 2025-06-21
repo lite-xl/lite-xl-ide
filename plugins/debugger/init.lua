@@ -184,8 +184,6 @@ config.plugins.debugger = common.merge({
   drawer_size = 200,
   hover_time_watch = 0.5,
   time_to_trigger_uninteractable_background = 0.1,
-  hover_symbol_pattern_backward = "[^%s%+%-%(%)%*/;,]*%a",
-  hover_symbol_pattern_forward = "[^%s%+%-%(%)%[%*%./;,]+",
   skip_files = { 
     "/usr/include/*",
     "/usr/include/*/*",
@@ -246,13 +244,29 @@ function debugger:should_show_drawer()
 end
 
 function debugger:get_hovering_token(docview, line, col)
-  local _, s = docview.doc.lines[line]:reverse():find(config.plugins.debugger.hover_symbol_pattern_backward, #docview.doc.lines[line] - col - 1)
-  if s and not docview.doc.lines[line]:sub(col, col):find("[=%s%[%(]") then
-    local _, e = docview.doc.lines[line]:find(config.plugins.debugger.hover_symbol_pattern_forward, col)
-    s, e = #docview.doc.lines[line] - s + 1, e or col
-    local token = docview.doc.lines[line]:sub(s, e):gsub("\n$", "")
-    return token, line, s, line, e
+  if docview.doc.lines[line]:sub(col, col):find("[^%w%d%_%]%)]") then return nil end
+  local _, e = docview.doc.lines[line]:sub(col):find("^[%w%d%_]+")
+  e = e and (e + col - 1) or col
+  local stack = {}
+  local s = e + 1
+  while s > 2 do
+    local char = docview.doc.lines[line]:sub(s - 1, s - 1)
+    if char == "]" then
+      table.insert(stack, "[")
+    elseif char == ")" then
+      table.insert(stack, "(")
+    elseif (char == "[" or char == "(") and stack[#stack] == char then
+      table.remove(stack)
+    elseif (char == "[" or char == "(") and #stack > 0 then
+      return nil -- we have unablanced parentheses
+    elseif char:find("[^%w%.%d_]") and #stack == 0 then
+      break
+    end
+    s = s - 1
   end
+  if #stack > 0 then return nil end
+  local token = docview.doc.lines[line]:sub(s, e):gsub("\n$", "")
+  return token, line, s, line, e
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
