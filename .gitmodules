@@ -1,3 +1,6 @@
 [submodule "lib/lite-xl"]
 	path = lib/lite-xl
 	url = https://github.com/lite-xl/lite-xl.git
+[submodule "lib/w64devkit"]
+	path = lib/w64devkit
+	url = https://github.com/skeeto/w64devkit.git
