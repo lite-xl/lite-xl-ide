@@ -48,8 +48,7 @@
       "todotreeview": { "optional": true },
       "scm": {},
       "gitblame": { "optional": true },
-      "terminal": {},
-      "persist": { "optional": true }
+      "terminal": {}
     }
   }, {
     "id": "ide_c",
@@ -144,6 +143,17 @@
       "ide": {},
       "lsp_zig": {}
     }
+  }, {
+    "id": "w64devkit",
+    "version": "0.1",
+    "mod_version": "4",
+    "description": "A package that contains an integrated development environment for windows.",
+    "path": "plugins/w64devkit.lua",
+    "files": [{
+      "arch": "x86_64-windows",
+      "url": "https://github.com/adamharrison/lite-xl-ide/releases/download/v0.4/w64devkit.zip",
+      "checksum": "8d248b71a959f71c60c8a7d57a04e28c39820e94179974a4f3b0e55784de3ee2"
+    }]
   }],
   "remotes": [
     "https://github.com/adamharrison/lite-xl-lsp-servers:3.0"
