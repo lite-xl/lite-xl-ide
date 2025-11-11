@@ -1,4 +1,4 @@
---mod-version:4 --priority: 10
+--mod-version:4 --priority: 1
 local config = require "core.config"
 local common = require "core.common"
 
