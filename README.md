@@ -40,13 +40,13 @@ as specified below in the [build targets](#build-targets) section.
 The build plugin is a flexible build system. It can be configured to either use `make`, or, it can take over entirely
 and run all the compile commands directly.
 
-* Support for `make`, `cmake`, `meson`, a shell command, or the default interal build system.
+* Support for `make`, `cmake`, `meson`, a shell command, or the default internal build system.
 * Support for internal building if configured with an appropriate compiler frontend. (`gcc` or `clang`).
 * Support for executing binary in an external terminal.
 
 #### Build Targets
 
-To explicitly use a speicifc build system with a set of build targets, you should place the configuration for these modules in your
+To explicitly use a specific build system with a set of build targets, you should place the configuration for these modules in your
 [lite-xl project module](https://lite-xl.com/user-guide/configuration/#project-module), which can be opened with `Core: Open Project Module`.
 
 When adding build targets, they broadly look like this:
