@@ -274,7 +274,7 @@ function DocView:draw_line_gutter(vline, x, y, width)
   if model.state == "stopped" and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and idx == debugger.instruction[2] then
     renderer.draw_rect(x, y+1, self:get_gutter_width(), self:get_line_height()-2, style.debugger.instruction)
   end
-  draw_line_gutter(self, vline, x, y, width)
+  return draw_line_gutter(self, vline, x, y, width)
 end
 
 function DocView:update()
