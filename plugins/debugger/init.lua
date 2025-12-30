@@ -106,6 +106,7 @@ local config  = require "core.config"
 local tokenizer = require "core.tokenizer"
 local syntax = require "core.syntax"
 local View = require "core.view"
+local RootView = require "core.rootview"
 local StatusView = require "core.statusview"
 
 local model = require "plugins.debugger.model"
@@ -178,6 +179,7 @@ function debugger:save()
 end
 
 config.plugins.debugger = common.merge({
+  debug = false,
   step_refresh_watches = true,
   hide_drawer_after = 3,
   interval = 0.01,
@@ -270,11 +272,11 @@ function debugger:get_hovering_token(docview, line, col)
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
-  if docview_on_mouse_pressed(self, button, x, y, clicks) then return true end
-  if self.hovering_gutter and command.perform("debugger:toggle-line-breakpoint", self.hovering_gutter) then 
+  local clicked = docview_on_mouse_pressed(self, button, x, y, clicks)
+  if self.hovering_gutter and self:perform("debugger:toggle-line-breakpoint", { line = self.hovering_gutter }) then 
     return true 
   end
-  return false
+  return clicked
 end
 
 function DocView:on_mouse_moved(x, y, ...)
@@ -304,7 +306,7 @@ end
 
 function DocView:update()
   docview_update(self)
-  if model.state == "stopped" and self:is(DocView) and core.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and self.watch_token == nil and self.last_moved_time and
+  if model.state == "stopped" and self:is(DocView) and self.root_view.active_view == self and self.doc and debugger.instruction and debugger.instruction[1] == self.doc.abs_filename and self.watch_token == nil and self.last_moved_time and
       system.get_time() - math.max(debugger.last_start_time, self.last_moved_time[3]) > config.plugins.debugger.hover_time_watch then
     local x, y = self.last_moved_time[1], self.last_moved_time[2]
     local line, col = self:resolve_screen_position(x, y)
@@ -335,8 +337,9 @@ end
 function DocView:draw()
   docview_draw(self)
   if self.watch_hover_value then
-    local x, y = self.last_moved_time[1], self.last_moved_time[2]
+    -- draw this above the variable, rather than below, so as to not clash with LSP
     local w, h = style.font:get_width(self.watch_hover_value) + style.padding.x*2, style.font:get_height() + style.padding.y * 2
+    local x, y = self.last_moved_time[1], self.last_moved_time[2] - style.padding.y - h
     renderer.draw_rect(x, y, w, h, style.accent)
     renderer.draw_rect(x+1, y+1, w-2, h-2, style.background3)
     renderer.draw_text(style.font, self.watch_hover_value, x + style.padding.x, y + style.padding.y, style.text)
@@ -596,9 +599,9 @@ debugger.watch_result_view = DebuggerWatchResultView()
 debugger.terminal_view = has_terminal and TerminalView({ shell = "DUMMY", font = style.debugger.font })
 if debugger.terminal_view then debugger.terminal_view.is_debugger_view = true end
 
-local old_set_active_view = core.set_active_view
-function core.set_active_view(view)
-  old_set_active_view(view)
+local old_set_active_view = RootView.set_active_view
+function RootView:set_active_view(view)
+  old_set_active_view(self, view)
   if model.state == "inactive" and view.is_debugger_view and (config.plugins.debugger.hide_drawer_after and (system.get_time() - debugger.last_exited) < config.plugins.debugger.hide_drawer_after) then
     debugger.drawer_visible = true
   end
@@ -694,13 +697,12 @@ end, {
   end
 })
 
-command.add(function()
-  return core.active_view and core.active_view.doc
-end, {
-  ["debugger:toggle-line-breakpoint"] = function(line)
-    if not line then line = get_selection(core.active_view, true) end
+command.add(DocView, {
+  ["debugger:toggle-line-breakpoint"] = function(dv, options)
+    local line = options.line
+    if not line then line = get_selection(dv, true) end
     if line then
-      local file = core.active_view.doc.abs_filename
+      local file = dv.doc.abs_filename
       if not model:has_breakpoint(file, line) then
         model:add_breakpoint(file, line)
         if not debugger.state.breakpoints then debugger.state.breakpoints = {} end
@@ -715,16 +717,16 @@ end, {
   end
 })
 
-command.add(function()
-  return core.active_view and core.active_view:is(DebuggerStackView) and core.active_view.hovered_frame, core.active_view
+command.add(function(rv)
+  return rv.active_view and rv.active_view:is(DebuggerStackView) and rv.active_view.hovered_frame, rv.active_view
 end, {
   ["debugger:jump-hovered-frame"] = function(view)
     jump_to_file(view.stack[view.hovered_frame][3], view.stack[view.hovered_frame][4])
   end
 })
     
-command.add(function()
-  return core.active_view and core.active_view:is(DebuggerStackView) and core.active_view.hovered_frame and model.state == "stopped", core.active_view
+command.add(function(rv)
+  return rv.active_view and rv.active_view:is(DebuggerStackView) and rv.active_view.hovered_frame and model.state == "stopped", rv.active_view
 end, {
   ["debugger:select-hovered-frame"] = function(view)
     model:frame(view.hovered_frame - 1, function()
@@ -746,9 +748,9 @@ end, {
 })
 
 command.add(DebuggerWatchVariableView, {
-  ["debugger:refresh-watches"] = function() 
+  ["debugger:refresh-watches"] = function(wvv) 
     debugger.watch_result_view:refresh()
-    core.set_active_view(core.next_active_view or core.last_active_view) 
+    wvv.root_view:set_active_view(wvv.root_view.next_active_view or wvv.root_view.last_active_view) 
   end
 })
 

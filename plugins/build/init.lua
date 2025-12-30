@@ -439,7 +439,7 @@ core.status_view:add_item({
     }
   end,
   command = function()
-     core.command_view:enter("Select Build Target", {
+    core.command_view:enter("Select Build Target", {
       text = build.targets[build.state.target].name,
       submit = function(text)
         local has = false
@@ -457,6 +457,35 @@ core.status_view:add_item({
           table.insert(names, v.name)
         end
         return names
+      end
+    })
+  end
+})
+core.status_view:add_item({
+  predicate = function() return config.target_binary end,
+  name = "build:binary",
+  alignment = StatusView.Item.RIGHT,
+  get_item = function()
+    local dv = core.active_view
+    return {
+      style.text, config.target_binary .. (config.target_binary_arguments and "*" or "")
+    }
+  end,
+  command = function()
+    core.command_view:enter("Set Target Binary", {
+      text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(build.escape_arguments(config.target_binary_arguments), " ")) or ""),
+      submit = function(text)
+        local i = text:find(" ")
+        if i then
+          config.target_binary = text:sub(1, i-1)
+          config.target_binary_arguments = build.argument_string_to_table(text:sub(i+1))
+        else
+          config.target_binary = text
+          config.target_binary_arguments = nil
+        end
+        table.insert(build.state.previous_arguments, { build.state.target, i and text:sub(i+1) })
+        if #build.state.previous_arguments > build.max_previous_arguments then table.remove(build.state.previous_arguments, 1) end
+        save_state()
       end
     })
   end
@@ -484,8 +513,13 @@ function BuildMessageView:new()
   self.hovered_message = nil
   self.visible = false
   self.active_message = nil
+  self.title = "Build Messages"
   self.active_file = nil
   self.active_line = nil
+end
+
+function BuildMessageView:get_name()
+  return self.title
 end
 
 function BuildMessageView:update()
@@ -569,7 +603,7 @@ function BuildMessageView:draw()
   self:draw_background(style.background3)
   local item_height = self:get_item_height()
   local ox, oy = self:get_content_offset()
-  local title = "Build Messages"
+  local title = self.title
   local subtitle = { }
   if build.is_running() then
     local t = { "|", "/", "-", "\\", "|", "/", "-", "\\" }
@@ -587,7 +621,7 @@ function BuildMessageView:draw()
   if subtitle and #subtitle == 2 then
     common.draw_text(style.build.font, colors[subtitle[1]] or style.accent, subtitle[2], "left", x + style.padding.x, self.position.y + style.padding.y, 0, item_height)
   end
-  core.push_clip_rect(self.position.x, self.position.y + item_height  + style.padding.y, self.size.x, self.size.y - item_height - style.padding.y)
+  self.root_view.window:push_clip_rect(self.position.x, self.position.y + item_height  + style.padding.y, self.size.x, self.size.y - item_height - style.padding.y)
   local default_color = style.text
   for i,v in ipairs(self.messages) do
     local yoffset = style.padding.y + i*item_height
@@ -616,10 +650,15 @@ function BuildMessageView:draw()
       end
     end
   end
-  core.pop_clip_rect()
+  self.root_view.window:pop_clip_rect()
   self:draw_scrollbar()
 end
 
+local BuildErrorView = BuildMessageView:extend()
+function BuildErrorView:new()
+  BuildErrorView.super.new(self)
+  self.title = "Error Messages"
+end
 
 
 local BuildBarView = ToolbarView:extend()
@@ -637,46 +676,29 @@ function BuildBarView:new()
   }
 end
 
+
+
+
 build.build_bar_view = BuildBarView()
 build.message_view = BuildMessageView()
-local node = core.root_view:get_active_node()
-build.message_view_node = node:split("down", build.message_view, { y = true }, true)
-build.build_bar_node = TreeView and TreeView.node.b:split("up", build.build_bar_view, {y = true})
+build.error_view = BuildErrorView()
+core.add_thread(function()
+  local rv = core.active_window().root_view
+  local node = rv:get_active_node()
+  build.message_view_node = node:split("down", build.message_view, { y = true }, true)
+  build.build_bar_node = rv and rv.treeview.node.b:split("up", build.build_bar_view, {y = true})
+end)
+
+--core.add_thread(function()
+--  build.message_view_node:resize("y", build.drawer_size)
+--end)
+-- build.message_view_node:add_view(build.error_view)
 
 
 
-core.status_view:add_item({
-  predicate = function() return config.target_binary end,
-  name = "build:binary",
-  alignment = StatusView.Item.RIGHT,
-  get_item = function()
-    local dv = core.active_view
-    return {
-      style.text, config.target_binary .. (config.target_binary_arguments and "*" or "")
-    }
-  end,
-  command = function()
-     core.command_view:enter("Set Target Binary", {
-      text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(build.escape_arguments(config.target_binary_arguments), " ")) or ""),
-      submit = function(text)
-        local i = text:find(" ")
-        if i then
-          config.target_binary = text:sub(1, i-1)
-          config.target_binary_arguments = build.argument_string_to_table(text:sub(i+1))
-        else
-          config.target_binary = text
-          config.target_binary_arguments = nil
-        end
-        table.insert(build.state.previous_arguments, { build.state.target, i and text:sub(i+1) })
-        if #build.state.previous_arguments > build.max_previous_arguments then table.remove(build.state.previous_arguments, 1) end
-        save_state()
-      end
-    })
-  end
-})
 
-command.add(function(x, y)
-  return core.active_view and core.active_view:is(BuildMessageView) and build.message_view.visible and (y == nil or y <= build.message_view.position.y + style.padding.y * 2 + style.build.font:get_height())
+command.add(function(rv, options)
+  return rv.active_view and rv.active_view:is(BuildMessageView) and rv.active_view.visible and (options.y == nil or options.y <= build.message_view.position.y + style.padding.y * 2 + style.build.font:get_height())
 end, {
   ["build:toggle-minimize"] = function()
     build.message_view.minimized = not build.message_view.minimized
@@ -881,6 +903,7 @@ core.add_thread(function()
         table.insert(targets, target)
       end
     end
+    core.log_quiet("Project's build system is unconfigured. Inferred basic build configuration for '%s'. If this is not sufficient, please configure your build configuration in your project module. (See https://github.com/lite-xl/lite-xl-ide for details.)", targets[1].backend.id)
     build.set_targets(targets)
   end
   build.set_target(build.state.target)
