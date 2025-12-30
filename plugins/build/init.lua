@@ -903,7 +903,11 @@ core.add_thread(function()
         table.insert(targets, target)
       end
     end
-    core.log_quiet("Project's build system is unconfigured. Inferred basic build configuration for '%s'. If this is not sufficient, please configure your build configuration in your project module. (See https://github.com/lite-xl/lite-xl-ide for details.)", targets[1].backend.id)
+    if #targets > 0 then
+      core.log_quiet("Project's build system is unconfigured. Inferred basic build configuration for '%s'. If this is not sufficient, please configure your build configuration in your project module. (See https://github.com/lite-xl/lite-xl-ide for details.)", targets[1].backend.id)
+    else
+      core.log_quiet("Project's build system is unconfigured. If this is undesired, please configure your build configuration in your project module. (See https://github.com/lite-xl/lite-xl-ide for details.)")
+    end
     build.set_targets(targets)
   end
   build.set_target(build.state.target)
