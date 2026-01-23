@@ -295,9 +295,9 @@ end
 
 function build.set_targets(targets, type)
   build.targets = targets
-  if type then
-    for i,v in ipairs(targets) do
-      v.backend = build.get_backends(type)
+  for i,v in ipairs(targets) do
+    if v.type or type then
+      v.backend = build.get_backends(v.type or type)
     end
   end
   config.target_binary = build.targets and #build.targets > 0 and build.targets[1].binary
