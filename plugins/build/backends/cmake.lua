@@ -37,8 +37,16 @@ function cmake.build(target, callback)
   local bd = get_build_directory(target)
   local tasks = { }
 
-  local make_build = function()
-    build.run_tasks({ { "make", "-C", bd, "-j", build.threads } }, function(status)
+  local run_build = function()
+    local cmd = { "cmake", "--build", bd}
+    if target.name then
+        table.insert(cmd, "--target")
+        table.insert(cmd, target.name)
+    end
+    table.insert(cmd, "--")
+    table.insert(cmd, "-j")
+    table.insert(cmd, build.threads)
+    build.run_tasks({ cmd }, function(status)
       local filtered_messages = grep(build.message_view.messages, function(v) return type(v) == 'table' and v[1] == "error" end)
       if callback then callback(status == 0 and #filtered_messages or 1) end
     end, function(line)
@@ -50,16 +58,16 @@ function cmake.build(target, callback)
     common.mkdirp(bd)
     build.run_tasks({ { "cmake", "-B" .. bd, "-S" .. core.root_project().path, "-DCMAKE_BUILD_TYPE=" .. (target.buildtype or "debug") } }, function(status)
       core.add_thread(function()
-        make_build()
+        run_build()
       end)
     end)
   else
     if not target.checked then
       core.add_thread(function()
-        make_build()
+        run_build()
       end)
     else
-      make_build()
+      run_build()
     end
   end
 end
