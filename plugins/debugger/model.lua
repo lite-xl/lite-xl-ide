@@ -73,11 +73,15 @@ function model:run()
   self.state = "running"
 end
 
+function model:apply_config()
+  for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:add_breakpoint(path, line) end end end
+  for i, files in ipairs(self.skip_files) do self.active:skip_file(files) end
+end
+
 function model:started()
   assert(self.state == "starting", "can only started from starting state, not while " .. self.state)
   self.state = "stopped"
-  for path, lines in pairs(self.breakpoints) do for line, has in pairs(lines) do if has then self:add_breakpoint(path, line) end end end
-  for i, files in ipairs(self.skip_files) do self.active:skip_file(files) end
+  self:apply_config()
   self:run()
 end
 
@@ -129,7 +133,7 @@ function model:stopped()
 end
 
 function model:completed()
-  assert(self.state == "running", "can only be completed from running state, not while " .. self.state)
+  assert(self.state == "running" or self.state == "starting", "can only be completed from running state or starting state, not while " .. self.state)
   self.state = "inactive"
   self.view_exited()
   self.active = nil

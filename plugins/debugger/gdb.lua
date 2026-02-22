@@ -211,9 +211,6 @@ function gdb:loop()
           if attributes.reason == "exited-normally" or attributes.reason == "exited" then
             self.debugger_completed()
             self:cmd("quit")
-          elseif attributes.frame and attributes.bkptno == "1" then
-            self.debugger_started()
-            self:continue()
           elseif attributes.reason == "end-stepping-range" and attributes.frame and attributes.frame.file and attributes.frame.line then
             self.stack_frame = {
               attributes.frame.file,
@@ -279,12 +276,16 @@ local function start(gdb, program_or_terminal, arguments, started, stopped, comp
       gdb.running_program = process.start(args, { cwd = core.root_project().path })
       gdb.waiting_on_result = function(type, category, attributes)
         gdb:cmd("set filename-display absolute")
-        gdb:cmd("start")
+        gdb:cmd("set breakpoint pending on")
+        gdb.debugger_started()
+        gdb:cmd("run")
       end
     else
       gdb.running_program = program_or_terminal
       gdb:cmd("set filename-display absolute")
-      gdb:cmd("start")
+      gdb:cmd("set breakpoint pending on")
+      gdb.debugger_started()
+      gdb:cmd("run")
     end
     gdb.saved_result = ""
     gdb.saved_stderr = ""

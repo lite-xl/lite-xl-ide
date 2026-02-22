@@ -665,13 +665,21 @@ end, {
   end
 })
 
+local function get_target_binary(binary)
+  if has_build then
+    return config.target_binary and build.get_binary(config.target_binary) 
+  else
+    return config.target_binary and core.root_project():absolute_path(config.target_binary)
+  end
+end
+
 command.add(function()
-  return config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary)) and model.state == "inactive"
+  return get_target_binary(config.target_binary) and system.get_file_info(get_target_binary(config.target_binary)) and model.state == "inactive"
 end, {
   ["debugger:start"] = function()
     debugger.last_start_time = system.get_time()
     if debugger.terminal_view then debugger.terminal_view.terminal:clear() end
-    model:start(config.target_binary, config.target_binary_arguments, function()
+    model:start(get_target_binary(config.target_binary), config.target_binary_arguments, function()
       debugger:paused()
     end, function()
       debugger:exited()
@@ -686,10 +694,10 @@ end, {
 })
 
 command.add(function()
-  return config.target_binary and (system.get_file_info(core.root_project():absolute_path(config.target_binary)) or has_build) and model.state ~= "running"
+  return get_target_binary(config.target_binary) and system.get_file_info(get_target_binary(config.target_binary)) and model.state ~= "running"
 end, {
   ["debugger:start-or-continue"] = function()
-    if not system.get_file_info(core.root_project():absolute_path(config.target_binary)) then
+    if not system.get_file_info(get_target_binary(config.target_binary)) then
       command.perform("build:build")
     else
       command.perform(model.state == "stopped" and "debugger:continue" or "debugger:start")

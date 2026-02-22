@@ -11,6 +11,34 @@ local StatusView = require "core.statusview"
 local TreeView = config.plugins.treeview ~= false and require "plugins.treeview"
 local ToolbarView = require "plugins.toolbarview"
 
+local function split(splitter, str)
+  local o = 1
+  local res = {}
+  while true do
+      local s, e = str:find(splitter, o)
+      table.insert(res, str:sub(o, s and (s - 1) or #str))
+      if not s then break end
+      o = e + 1
+  end
+  return res
+end
+
+
+
+local function get_path(exec)
+  -- On windows, in theory to resolve things, we also check the working directory even without a PATHSEP.
+  if exec:find(PATHSEP) or PLATFORM == "windows" and system.stat(exec) then return exec end
+  for i, v in ipairs(split(":", os.getenv("PATH"))) do
+    local s = system.get_file_info(v .. PATHSEP .. exec)
+    if s and s.type == "file" then
+      return v .. PATHSEP .. exec
+    end
+  end
+  return nil
+end
+
+
+
 
 local storage 
 if rawget(_G, "MOD_VERSION_MAJOR") == 4 then
@@ -68,6 +96,16 @@ local build = common.merge({
   shell = (PLATFORM == "Windows" and "START /B" or { "bash", "-c" })
 }, config.plugins.build)
 
+function build.get_binary(binary)
+  if binary then 
+    if system.get_file_info(core.root_project():absolute_path(binary)) then
+      local path = core.root_project():absolute_path(binary)
+      return common.is_absolute_path(path) and path or ("./" .. path)
+    end
+    return get_path(binary)
+  end
+  return false
+end
 
 if not style.build then style.build = {} end
 style.build.font = style.code_font:copy(style.code_font:get_height()*0.7)
@@ -130,19 +168,6 @@ function build.get_backends(specific)
   end
   return backends
 end
-
-local function split(splitter, str)
-  local o = 1
-  local res = {}
-  while true do
-      local s, e = str:find(splitter, o)
-      table.insert(res, str:sub(o, s and (s - 1) or #str))
-      if not s then break end
-      o = e + 1
-  end
-  return res
-end
-
 
 build.state = storage.load("build", "state") or { previous_arguments = {}, target = 1 }
 local function save_state()
@@ -257,8 +282,24 @@ function build.run_tasks(tasks, on_done, on_line)
               for i,task in ipairs(bundle.tasks) do
                 if total_running >= build.threads then break end
                 if not task.done and not task.program then
-                  build.message_view:add_message(table.concat(task.cmd, " "))
-                  task.program = process.start(task.cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}), cwd = core.project_absolute_path(".") })
+                  local evaluated_cmd = {}
+                  for i,v in ipairs(task.cmd) do
+                    
+                      if type(v) == 'table' then
+                        local status, err = pcall(function() 
+                          v = process.start(v).stdout:read("*all")
+                        end) 
+                        if not status then
+                          core.error("Error in running build tasks: %s", err)
+                          v = nil
+                        end
+                      end
+                    if v and v ~= "" then
+                      table.insert(evaluated_cmd, v)
+                    end
+                  end
+                  build.message_view:add_message(table.concat(evaluated_cmd, " "))
+                  task.program = process.start(evaluated_cmd, { ["stderr"] = process.REDIRECT_STDOUT, env = (PLATFORM ~= "Windows" and { TERM = "ansi" } or {}), cwd = core.project_absolute_path(".") })
                   total_running = total_running + 1
                 end
               end
@@ -288,7 +329,12 @@ function build.set_target(target)
       break
     end
   end
-  config.target_binary_arguments = build.argument_string_to_table(arguments)
+  if arguments == "" and build.targets and build.targets[target].binary_arguments then
+    config.target_binary_arguments = build.targets[target].binary_arguments
+  else
+    config.target_binary_arguments = build.argument_string_to_table(arguments)
+  end
+  
   build.state.target = target
   save_state()
 end
@@ -362,7 +408,7 @@ function build.get_command(arguments)
     if PLATFORM == "Windows" then
       command = { build.shell, command, table.unpack(arguments) }
     else
-      if not common.is_absolute_path(command) then command = "./" .. command end
+      command = build.get_binary(command)
       local cmd = {}
       for i,v in ipairs(type(build.terminal) == 'table' and build.terminal or { build.terminal }) do table.insert(cmd, type(v) == 'function' and v(build.targets[target], command) or v) end
       table.insert(cmd, "")
@@ -719,8 +765,8 @@ end, {
 })
 
 local tried_term = false
-command.add(function()
-  return not build.is_running() and build.state.target and build.targets[build.state.target]
+command.add(function(root_view, arguments)
+  return not build.is_running() and build.state.target and build.targets[build.state.target], arguments
 end, {
   ["build:build"] = function()
     for i,v in ipairs(core.docs) do
@@ -772,10 +818,10 @@ end, {
 })
 
 
-command.add(function()
-  return config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))
+command.add(function(root_view, options)
+  return build.get_binary(config.target_binary), options
 end, {
-  ["build:run-or-term-or-kill"] = function(arguments)
+  ["build:run-or-term-or-kill"] = function(options)
     if build.is_running() then
       if tried_term then
         build.kill()
@@ -785,7 +831,7 @@ end, {
       end
     else
       tried_term = false
-      build.run(arguments)
+      build.run(options.arguments)
     end
   end,
   ["build:run-or-term-or-kill-with-arguments"] = function(arguments)
@@ -794,7 +840,7 @@ end, {
     core.command_view:enter(config.target_binary .. " ", {
       submit = function(text)
         config.target_binary_arguments = build.argument_string_to_table(text)
-        command.perform("build:run-or-term-or-kill", text)
+        command.perform("build:run-or-term-or-kill", { arguments = text })
         local has = false
         for i,v in ipairs(build.state.previous_arguments) do
           if v[1] == build.state.target and v[2] == text then
