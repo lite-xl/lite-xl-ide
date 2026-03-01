@@ -63,10 +63,10 @@ local function get_linker(target) return get_field(target, nil, "ld") end
 
 local function get_source_files(target)
   local files = {}
-  for project, file in core.root_project():files() do
+  for project, file in core.get_project_files() do
     local file = file.filename
     for i, src in ipairs(target.srcs) do
-      local path = core.root_project():absolute_path(src)
+      local path = core.normalize_to_project_dir(src)
       if file:find(path, 1, true) == 1 and get_compiler(target, file) then 
         table.insert(files, file)
         break

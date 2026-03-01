@@ -877,7 +877,7 @@ core.add_thread(function()
     if #targets == 0 then
       local internal = build.get_backends("internal")
       for _, target in ipairs(internal.infer() or {}) do
-        target.backend = backend
+        target.backend = internal
         table.insert(targets, target)
       end
     end
