@@ -11,16 +11,16 @@ target.args_clean  = list of clean args (default = clean)
 ]]
 
 local function get_script_name(target)
-    return target.script_name or "build.sh"
+    return target.command or "build.sh"
 end
 local function get_runner_name(target)
-    return target.runner_name or "sh"
+    return target.runner or "sh"
 end
 local function get_args_clean(target)
     return table.unpack(target.args_clean or {"clean"})
 end
 local function get_args_build(target)
-    return table.unpack(target.args_build or {})
+    return table.unpack(target.arguments or target.args_build or {})
 end
 
 function shell.infer()
