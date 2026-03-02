@@ -24,7 +24,7 @@ local function get_args_build(target)
 end
 
 function shell.infer()
-  return nil and {
+  return system.get_file_info(core.root.project().path .. PATHSEP .. "build.sh") and {
     { name = "debug", arguments = { "-g" } },
     { name = "release" }
   }
