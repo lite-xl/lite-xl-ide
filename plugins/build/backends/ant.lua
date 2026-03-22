@@ -18,7 +18,18 @@ function ant.infer()
       { name = "clean",   backend = "ant", run = { "ant", "clean" } },
       { name = "compile", backend = "ant", run = { "ant", "compile" } },
       { name = "jar",     backend = "ant", run = { "ant", "jar" } },
-      { name = "run",     backend = "ant", run = { "ant", "run" } }
+      { name = "run",     backend = "ant", run = { "ant", "run" } },
+      -- Lifecycle
+      -- {
+      --   name = "lifecycle_base",
+      --   backend = "ant",
+      --   run = {
+      --     "ant", "clean",
+      --     "ant", "compile",
+      --     "ant", "jar",
+      --     "ant", "run"
+      --   }
+      -- }
     }
   end
 end
