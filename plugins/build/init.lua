@@ -278,6 +278,15 @@ function build.is_running() return build.thread ~= nil end
 function build.output(line) core.log_quiet(line) end
 
 function build.set_target(target)
+  if not build.targets or #build.targets == 0 then
+    core.log_quiet("No build targets available")
+    return
+  end
+  if not target then
+    core.log_quiet("No target given")
+    return
+  end
+
   target = common.clamp(target, 1, #build.targets)
   config.target_binary = build.targets and build.targets[target] and build.targets[target].binary
   local arguments = ""
@@ -435,7 +444,7 @@ core.status_view:add_item({
   get_item = function()
     local dv = core.active_view
     return {
-      style.text, string.format("target: %s (%s)", build.targets[build.state.target].name, build.targets[build.state.target].backend.id)
+      style.text, string.format("target: %s (%s)", build.targets[build.state.target].name or "default", build.targets[build.state.target].backend.id)
     }
   end,
   command = function()
@@ -796,6 +805,10 @@ local function select_target_commandview(submit, target, condition)
   if target then submit(target) end
   local target_names = {}
   for i,v in ipairs(build.targets) do if (not condition or condition(v)) then table.insert(target_names, v.name) end end
+  if #target_names == 0 then
+    core.log("No targets found")
+    return
+  end
   core.command_view:enter("Select Target", {
     submit = function(text)
       for i,v in ipairs(build.targets) do if v.name == text then submit(v, i) end end
