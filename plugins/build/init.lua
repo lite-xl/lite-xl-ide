@@ -312,20 +312,22 @@ function build.set_targets(targets, type)
   config.target_binary = build.targets and #build.targets > 0 and build.targets[1].binary
 end
 
-
+function build.can_build(target)
+  return target.build ~= false and (target.build or (target.backend.build and (not target.backend.can_build or target.backend.can_build(target))))
+end
 
 function build.build(callback)
-  if build.is_running() or build.targets[build.state.target].build == false then return false end
+  local target = build.targets[build.state.target]
+  if build.is_running() or not build.can_build(target) then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
-  local target = build.state.target
-  build.message_view:add_message("Building " .. (build.targets[target].binary and common.basename(build.targets[target].binary) or "target") .. "...")
+  build.message_view:add_message("Building " .. (target.binary and common.basename(target.binary) or "target") .. "...")
   build.message_view.minimized = false
   local status, err = pcall(function()
-    if not build.targets[target] then error("Can't find target " .. target) end
-    if not build.targets[target].backend then error("Can't find target " .. target .. " backend.") end
-    build.targets[target].backend.build(build.targets[target], function (status)
-      local line = "Completed building " .. (build.targets[target].binary and common.basename(build.targets[target].binary) or "target") .. ". " .. status .. " Errors/Warnings."
+    if not target then error("Can't find target " .. target) end
+    if not target.backend then error("Can't find target " .. target .. " backend.") end
+    target.backend.build(target, function (status)
+      local line = "Completed building " .. (target.binary and common.basename(target.binary) or "target") .. ". " .. status .. " Errors/Warnings."
       build.message_view:add_message({ status == 0 and "good" or "error", line })
       build.message_view.visible = status ~= 0 or build.on_success ~= "close"
       build.output(line)
@@ -360,9 +362,8 @@ function build.escape_arguments(arguments)
   return arguments
 end
 
-function build.get_command(arguments)
+function build.get_shell_command(target, command, arguments)
   local target = build.state.target
-  local command = build.targets[target].run or config.target_binary
   if type(command) == "function" then
     command = command(build.targets[target])
   elseif type(command) == "string" then
@@ -384,29 +385,42 @@ function build.get_command(arguments)
   return command
 end
 
-function build.run(arguments)
-  if build.is_running() or build.targets[build.state.target].run == false or build.targets[build.state.target].backend.run == false then return false end
-  build.message_view:clear_messages()
-  if build.targets[build.state.target].backend.run then
-    build.targets[build.state.target].backend.run(build.targets[build.state.target])
+function build.execute_command(command)
+  if PLATFORM == "Windows" then
+    os.execute(table.concat(command, " "))
   else
-    local command = build.get_command(arguments)
-    if PLATFORM == "Windows" then
-      os.execute(table.concat(command, " "))
-    else
-      build.run_tasks({ command })
-    end
+    build.run_tasks({ command })
   end
 end
 
+function build.can_run(target)
+  return target.run ~= false and (target.run or (target.backend.run and (not target.backend.can_run or target.backend.can_run(target))))
+end
+
+function build.run(arguments)
+  local target = build.targets[build.state.target]
+  if build.is_running() or not build.can_run(target) then return false end
+  build.message_view:clear_messages()
+  if target.backend.run then
+    target.backend.run(target)
+  else
+    build.execute_command(build.get_shell_command(target, target.run or config.target_binary, arguments))
+  end
+end
+
+function build.can_clean(target)
+    return target.clean ~= false and (target.clean or (target.backend.clean and (not target.backend.can_clean or target.blackend.can_clean(target))))
+end
+
 function build.clean(callback)
-  if build.is_running() or build.targets[build.state.target].clean == false or build.targets[build.state.target].backend.clean == false then return false end
+  local target = build.targets[build.state.target]
+  if build.is_running() or build.can_clean(target) then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
   build.message_view.minimized = false
-  build.message_view:add_message("Started clean " .. (build.targets[build.state.target].binary or "target") .. ".")
-  build.targets[build.state.target].backend.clean(build.targets[build.state.target], function(...)
-    build.message_view:add_message({ "good", "Completed cleaning " .. (build.targets[build.state.target].binary or "target") .. "." })
+  build.message_view:add_message("Started clean " .. (target.binary or "target") .. ".")
+  target.backend.clean(target, function(...)
+    build.message_view:add_message({ "good", "Completed cleaning " .. (target.binary or "target") .. "." })
     if build.on_success == "minimize" then build.message_view.minimized = true end
     if callback then callback(...) end
   end)
@@ -442,7 +456,7 @@ end
 
 ------------------ UI Elements
 core.status_view:add_item({
-  predicate = function() return build.state.target and build.targets[build.state.target] end,
+  predicate = function() return build.state.target and build.targets[build.state.target] and build.targets[build.state.target].backend end,
   name = "build:target",
   alignemnt = StatusView.Item.RIGHT,
   get_item = function()
@@ -710,8 +724,8 @@ end, {
 })
 
 local tried_term = false
-command.add(function()
-  return not build.is_running() and build.state.target and build.targets[build.state.target]
+command.add(function(root_view, arguments)
+  return not build.is_running() and build.can_build(build.targets[build.state.target]), arguments
 end, {
   ["build:build"] = function()
     for i,v in ipairs(core.docs) do
@@ -722,7 +736,12 @@ end, {
     if #build.targets > 0 then
       build.build()
     end
-  end,
+  end
+})
+
+command.add(function(root_view, arguments)
+  return not build.is_running() and build.can_build(build.targets[build.state.target]) and build.can_run(build.targets[build.state.target]), arguments
+end, {
   ["build:build-and-run"] = function(arguments)
     for i,v in ipairs(core.docs) do
       if v:is_dirty() and v.filename and v.abs_filename then
@@ -737,16 +756,32 @@ end, {
       end)
     end
   end,
+})
+
+command.add(function(root_view, arguments)
+  return not build.is_running() and build.can_build(build.targets[build.state.target]) and build.can_clean(build.targets[build.state.target]), arguments
+end, {
   ["build:rebuild"] = function()
     build.clean(function()
       if #build.targets > 0 then
         build.build()
       end
     end)
-  end,
+  end
+})
+
+
+command.add(function(root_view, arguments)
+  return not build.is_running() and build.can_clean(build.targets[build.state.target]), arguments
+end, {
   ["build:clean"] = function()
     build.clean()
-  end,
+  end
+})
+
+command.add(function(root_view, arguments)
+  return build.state.target
+end, {
   ["build:next-target"] = function()
     if #build.targets > 0 then
       build.set_target((build.state.target % #build.targets) + 1)
@@ -763,7 +798,7 @@ end, {
 })
 
 command.add(function(root_view, options)
-  return (config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))) or build.targets[build.state.target].run, options
+  return (config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))) or build.can_run(build.targets[build.state.target]), options
 end, {
   ["build:run-or-term-or-kill"] = function(arguments)
     if build.is_running() then
