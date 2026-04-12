@@ -423,7 +423,6 @@ function build.get_command(arguments)
       table.insert(cmd, "")
       for i,v in ipairs(type(build.shell) == 'table' and build.shell or { build.shell }) do cmd[#cmd] = cmd[#cmd] .. (type(v) == 'function' and v(build.targets[target], command) or v) .. " " end
       cmd[#cmd] = cmd[#cmd] .. "'cd " .. (build.targets[target].wd or core.root_project().path) .. " && " .. command .. " " .. argument_string .. "; echo \"\nProgram exited with error code $?.\n\nPress any key to exit...\"; read'"
-      print(table.concat(cmd, " "))
       command = cmd
     end
   end
@@ -831,7 +830,7 @@ end, {
 })
 
 command.add(function(root_view, options)
-  return build.get_binary(config.target_binary), options or build.targets[build.state.target].run, options
+  return build.get_binary(config.target_binary) or build.targets[build.state.target].run, options
 end, {
   ["build:run-or-term-or-kill"] = function(options)
     if build.is_running() then
@@ -930,7 +929,7 @@ end, {
 keymap.add {
   ["lclick"]             = { "build:toggle-minimize", "build:jump-to-hovered" },
   ["ctrl+b"]             = { "build:build", "build:terminate" },
-  ["alt+b"]         = "build:build-and-run",
+  ["alt+b"]              = "build:build-and-run",
   ["ctrl+alt+b"]         = "build:rebuild",
   ["ctrl+e"]             = "build:run-or-term-or-kill",
   ["ctrl+shift+e"]       = "build:run-or-term-or-kill-with-arguments",
