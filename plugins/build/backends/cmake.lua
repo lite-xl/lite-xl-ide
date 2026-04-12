@@ -14,7 +14,7 @@ end
 
 function cmake.infer()
   return system.get_file_info(core.root_project().path .. PATHSEP .. "CMakeLists.txt") and {
-    { name = "debug" },
+    { name = "debug", buildtype = "debug" },
     { name = "release", buildtype = "release" }
   }
 end
@@ -74,8 +74,17 @@ end
 
 
 function cmake.clean(target, callback)
-  if system.get_file_info(get_build_directory(target)) then common.rm(get_build_directory(target), true) end
-  callback(0)
+  local bd = get_build_directory(target)
+
+  local cmd = { "cmake", "--build", bd, "--target", "clean" }
+ 
+  build.run_tasks({ cmd }, function(status)
+    if callback then 
+      callback(status) 
+    end
+  end, function(line)
+    build.message_view:add_message(build.parse_compile_line(line))
+  end)
 end
 
 
