@@ -315,7 +315,7 @@ end
 
 
 function build.build(callback)
-  if build.is_running() then return false end
+  if build.is_running() or build.targets[build.state.target].build == false then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
   local target = build.state.target
@@ -385,18 +385,22 @@ function build.get_command(arguments)
 end
 
 function build.run(arguments)
-  if build.is_running() then return false end
+  if build.is_running() or build.targets[build.state.target].run == false or build.targets[build.state.target].backend.run == false then return false end
   build.message_view:clear_messages()
-  local command = build.get_command(arguments)
-  if PLATFORM == "Windows" then
-    os.execute(table.concat(command, " "))
+  if build.targets[build.state.target].backend.run then
+    build.targets[build.state.target].backend.run(build.targets[build.state.target])
   else
-    build.run_tasks({ command })
+    local command = build.get_command(arguments)
+    if PLATFORM == "Windows" then
+      os.execute(table.concat(command, " "))
+    else
+      build.run_tasks({ command })
+    end
   end
 end
 
 function build.clean(callback)
-  if build.is_running() then return false end
+  if build.is_running() or build.targets[build.state.target].clean == false or build.targets[build.state.target].backend.clean == false then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
   build.message_view.minimized = false
@@ -758,9 +762,8 @@ end, {
   end
 })
 
-
-command.add(function()
-  return config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))
+command.add(function(root_view, options)
+  return (config.target_binary and system.get_file_info(core.root_project():absolute_path(config.target_binary))) or build.targets[build.state.target].run, options
 end, {
   ["build:run-or-term-or-kill"] = function(arguments)
     if build.is_running() then

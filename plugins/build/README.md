@@ -46,3 +46,21 @@ You can specify also the following types of flags in the target:
 * `ldflags` - Linking flags to pass while linking together your object files.
 * `type` - The type of output to produce. Possible values are `static`, `shared` and `executable`. Default is `executable`.
 * `binary` - The resulting target name for the binary.
+
+
+### Example Config
+
+When setting up a project, you had a makefile driven project, you could place the following in your project module to get 5 targets, 3 of which are executable:
+
+```lua
+config.plugins.build.targets = {
+  { name = "TestSanity", binary = "bin/01sanity" },
+	{ name = "LibraryDebug" },
+	{ name = "LibraryRelease" },
+	{ name = "WebserverDebug", binary = "bin/searchserver" },
+	{ name = "WebserverRelease", binary = "bin/searchserver" }
+}
+config.plugins.build.type = "make"
+```
+
+
