@@ -414,7 +414,7 @@ end
 
 function build.clean(callback)
   local target = build.targets[build.state.target]
-  if build.is_running() or build.can_clean(target) then return false end
+  if build.is_running() or not build.can_clean(target) then return false end
   build.message_view:clear_messages()
   build.message_view.visible = true
   build.message_view.minimized = false
