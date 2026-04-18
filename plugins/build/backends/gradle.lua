@@ -32,8 +32,8 @@ function gradle.infer()
       --   backend = "gradle",
       --   -- FIX
       --   run = {
-      --     gradlew, "build",
-      --     gradlew, "run"
+      --     { gradlew, "build" },
+      --     { gradlew, "run" }
       --   }
       -- }
     }

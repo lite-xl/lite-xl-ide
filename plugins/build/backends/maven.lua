@@ -32,8 +32,8 @@ function maven.infer()
       --   backend = "maven",
       --   -- FIX
       --   run = {
-      --     mvn, "build",
-      --     mvn, "run"
+      --     { mvn, "build" },
+      --     { mvn, "run" }
       --   }
       -- }
     }

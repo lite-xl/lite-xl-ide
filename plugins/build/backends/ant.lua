@@ -24,10 +24,10 @@ function ant.infer()
       --   name = "lifecycle_base",
       --   backend = "ant",
       --   run = {
-      --     "ant", "clean",
-      --     "ant", "compile",
-      --     "ant", "jar",
-      --     "ant", "run"
+      --     { "ant", "clean"},
+      --     { "ant", "compile"},
+      --     { "ant", "jar"},
+      --     { "ant", "run"}
       --   }
       -- }
     }
