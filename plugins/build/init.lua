@@ -359,7 +359,7 @@ function build.set_targets(targets, type)
 end
 
 function build.can_build(target)
-  return target.build ~= false and (target.build or (target.backend.build and (not target.backend.can_build or target.backend.can_build(target))))
+  return target and target.build ~= false and (target.build or (target.backend.build and (not target.backend.can_build or target.backend.can_build(target))))
 end
 
 function build.build(callback)
@@ -439,7 +439,7 @@ function build.execute_command(command)
 end
 
 function build.can_run(target)
-  return target.run ~= false and (target.run or (target.backend.run and (not target.backend.can_run or target.backend.can_run(target))))
+  return target and target.run ~= false and (target.run or (target.backend.run and (not target.backend.can_run or target.backend.can_run(target))))
 end
 
 function build.run(arguments)
@@ -454,7 +454,7 @@ function build.run(arguments)
 end
 
 function build.can_clean(target)
-    return target.clean ~= false and (target.clean or (target.backend.clean and (not target.backend.can_clean or target.blackend.can_clean(target))))
+    return target and target.clean ~= false and (target.clean or (target.backend.clean and (not target.backend.can_clean or target.blackend.can_clean(target))))
 end
 
 function build.clean(callback)
@@ -533,6 +533,7 @@ core.status_view:add_item({
     })
   end
 })
+
 core.status_view:add_item({
   predicate = function() return config.target_binary end,
   name = "build:binary",
@@ -546,6 +547,16 @@ core.status_view:add_item({
   command = function()
     core.command_view:enter("Set Target Binary", {
       text = config.target_binary .. (config.target_binary_arguments and (" " .. table.concat(build.escape_arguments(config.target_binary_arguments), " ")) or ""),
+      suggest = function(text) 
+        local arguments = {}
+        for i = #build.state.previous_arguments, 1, -1 do
+          local v = build.state.previous_arguments[i]
+          if type(v) == 'table' and v[2] then
+            table.insert(arguments, config.target_binary .. v[2])
+          end
+        end
+        return common.fuzzy_match(arguments, text)
+      end,
       submit = function(text)
         local i = text:find(" ")
         if i then
